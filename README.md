@@ -1,6 +1,6 @@
-# Frame-1 Marth→Fox JC-Shine Macro (SSBM v1.02 NTSC)
+# Agentic Gamecube Modding (designed for SSBM v1.02 NTSC)
 
-A netplay-safe Slippi gecko code that makes Fox (P2) jump-cancel into shine on the **exact frame** Marth (P1) begins a grab. Built on top of a custom all-`dolphin-memory-engine` (dme) harness for Slippi Dolphin on macOS, with a runtime debugger (software breakpoints + register snapshots) layered on top of a one-shot boot-time "meta-flush" gecko.
+Just describe the mod you want. Your agent will now be able to handle the diassembly, memory writes, and even testing. Standard output is a gecko code.
 
 ## Where to start
 
