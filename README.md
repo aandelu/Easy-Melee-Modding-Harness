@@ -36,8 +36,9 @@ All scripts exit 0 on `[PASS]`, non-zero on `[FAIL]`.
 
 ## What's shipped
 
-- `candidate_d_standalone_v2.py` — the **production gecko code**. Self-contained — paste the assembled bytes into your Slippi `GameSettings/GALE01r2.ini` to use offline or online.
+- `candidate_d_standalone_v2.py` — the **production gecko code** for the JC-shine. Self-contained — paste the assembled bytes into your Slippi `GameSettings/GALE01r2.ini` to use offline or online.
 - `candidate_d2.py` + `play_d2.py` — the same logic packaged for **live play through the harness** (Dolphin window is open, you control P1 with a real pad, the harness drives Fox).
+- [`auto_lcancel/`](auto_lcancel/) — second macro: **automatic L-cancel for Fox**. Installs at runtime via meta-flush + a PadRead hook; presses L exactly once per 7-frame cycle while in any aerial-attack state, so every landing during an aerial L-cancels. 20-trial verify (`auto_lcancel/test_fox_aerials.py`) covers all 5 aerials × both hop heights with no airdodge edge cases. Build session log: [`docs/sessions/2026-05-17.md`](docs/sessions/2026-05-17.md).
 
 ## Repo layout
 
@@ -47,8 +48,9 @@ melee_harness.py                                    launch / dme / savestate / s
 scenario.py                                         in-game trigger + observation
 instr_writer.py                                     meta-flush gecko (Phase 1)
 bp.py                                               software breakpoints (Phase 2)
-candidate_d_standalone_v2.py                        shipped macro
-candidate_d2.py + play_d2.py                        live-play wrapper
+candidate_d_standalone_v2.py                        shipped JC-shine macro
+candidate_d2.py + play_d2.py                        JC-shine live-play wrapper
+auto_lcancel/                                       auto-L-cancel macro + tests (2nd macro)
 verify_*.py                                         smoke tests, exit 0 on PASS
 diag_*.py                                           runtime probes / cave dumps
 GALE01r2.ini                                        base GameSettings INI vendored from libmelee

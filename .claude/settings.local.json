@@ -12,7 +12,9 @@
       "Bash(pkill -9 -f \"verify_savestate\\\\|diag_\")",
       "Bash(awk '{print $2,$11}')",
       "Bash(python3 -u verify_savestate.py)",
-      "Bash(echo \"verify pid $!\")"
+      "Bash(echo \"verify pid $!\")",
+      "Bash(caffeinate -dimsu -t 28800)",
+      "Bash(echo \"caffeinate PID: $!\")"
     ]
   }
 }
