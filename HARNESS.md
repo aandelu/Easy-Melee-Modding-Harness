@@ -2,7 +2,7 @@
 
 Closed-loop development environment for the Frame-1 gecko macro project (Fox auto-shines on Marth's grab). The harness lets us iterate **autonomously** — install a candidate gecko code, reset game state, drive the trigger, observe the reaction, classify, repeat — with no human interaction per cycle.
 
-This document is the authoritative description of the **current** architecture. `Project_Context.md` captures the earlier exploration that led here.
+This document is the authoritative description of the **current** architecture. `docs/Project_Context.md` captures the earlier exploration that led here. For the debugger-driven workflow built on top of this harness, see `WORKFLOW.md`.
 
 ---
 
@@ -29,6 +29,10 @@ About **11 s** from `python verify_scenario.py` to first classified trial. Subse
                 │  - GameSettings/GALE01r2.ini contains:       │
                 │     * vendored libmelee codes                │
                 │     * harness-staged C2 candidates           │
+                │     * meta-flush gecko (always, if           │
+                │       install_meta_flush was called)         │
+                │     * BP handlers (written at runtime via    │
+                │       meta-flush)                            │
                 │  - Slippi bootloader installs codes at boot, │
                 │    with proper icache flush                  │
                 │  - emulated CPU runs game; codes fire        │
@@ -36,7 +40,8 @@ About **11 s** from `python verify_scenario.py` to first classified trial. Subse
                 └──────────────────────────────────────────────┘
                                   │  ▲
                   data writes /   │  │  data reads
-                  triggers        │  │  (action state, ptrs)
+                  triggers        │  │  (action state, ptrs,
+                  BP cont flag    │  │   BP hit flag, regs)
                                   ▼  │
                 ┌──────────────────────────────────────────────┐
                 │  dolphin-memory-engine (dme)                 │
@@ -46,11 +51,23 @@ About **11 s** from `python verify_scenario.py` to first classified trial. Subse
                                   │
                                   ▼
                 ┌──────────────────────────────────────────────┐
-                │  Harness (Python)                            │
-                │  - subprocess launches Dolphin               │
-                │  - synthetic F2 keystroke → savestate load   │
-                │  - MEM1 snapshot/restore = reset mechanism   │
-                │  - scenario.py drives trigger + observes     │
+                │  Harness layers (Python)                     │
+                │                                              │
+                │  bp.py            Phase 2 -- software BPs    │
+                │      set_breakpoint, wait_for_hit,           │
+                │      read/write_snapshot, continue_          │
+                │                                              │
+                │  instr_writer.py  Phase 1 -- meta-flush:     │
+                │      write_instrs / patch_branch /           │
+                │      flush_range. Runtime instruction-       │
+                │      memory writes that the CPU observes.    │
+                │                                              │
+                │  scenario.py      In-game trigger /          │
+                │                   observation helpers        │
+                │                                              │
+                │  melee_harness.py Launch, dme hook, F2       │
+                │                   savestate, MEM1 snapshot/  │
+                │                   restore, gecko staging     │
                 └──────────────────────────────────────────────┘
 ```
 
@@ -59,7 +76,9 @@ About **11 s** from `python verify_scenario.py` to first classified trial. Subse
 | Decision                                  | Why                                                                                                                                                    |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | All-dme (no libmelee)                     | Savestate load corrupts libmelee's Slippi EXI channel → `console.step()` desync. dme has no host-side stateful channel, survives MEM1 reset.           |
-| Boot-time gecko install (not dme patches) | Dolphin's CPU emulator does **not** observe dme writes to instruction memory (even pure interpreter). Slippi's bootloader patches with icache flush.   |
+| Boot-time gecko install (the shipped path) | Dolphin's CPU emulator does **not** observe raw dme writes to instruction memory (even pure interpreter). Slippi's bootloader patches with icache flush.   |
+| Runtime patches via meta-flush gecko       | The "raw dme doesn't reach the CPU" problem is the *icache flush* part, not dme. One boot-time gecko (`instr_writer.META_FLUSH_LOGIC`) issues `dcbf`/`sync`/`icbi`/`isync` over a dme-controlled range on demand. After that, `write_instrs` patches any MEM1 location and the CPU sees it within ~1 frame. Demo: `verify_meta_flush.py`. Caveat: patches don't survive `restore_snapshot()`. |
+| Software breakpoints via overwrite-and-spin | Built on `instr_writer`: overwrite target with branch to a per-slot handler in scratch RAM. Handler snapshots r0..r31 + LR/CTR/CR, signals hit, spins on continue. dme reads/edits the snapshot, releases the spin. Handler restores and runs the displaced original. Demo: `verify_bp.py`. **Not netplay-safe** — the spin halts the entire PPC core. |
 | Synthetic F2 to load savestate            | Macros that load via the GUI menu need a click each iteration; F2 hotkey can be sent via CGEvent (`kCGHIDEventTap`) once Dolphin's hotkey device is `Quartz/0/Keyboard & Mouse`. |
 | MEM1 snapshot/restore for reset           | Loading Dolphin's own savestate via F2 each iteration works but is slower (~5 s). After the **first** F2-load we snapshot all of MEM1 via dme; subsequent resets are just a 24 MB `dme.write_bytes`. |
 | Vendored `GALE01r2.ini` override          | Slippi Dolphin's default GALE01 gecko codes panic during savestate load with `IntCPU: Unknown instruction 00000007 at PC=80c833a4` (stale codehandler branch into restored heap). The vendored INI (from libmelee, minimal contents) suppresses the bad codes. |
@@ -69,43 +88,65 @@ About **11 s** from `python verify_scenario.py` to first classified trial. Subse
 ## 4. File inventory
 
 ### Source
-| File                       | Purpose                                                                                                              |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `melee_harness.py`         | `Harness` class. Launches Dolphin, hooks dme, F2-loads savestate, snapshots/restores MEM1, installs gecko C2 codes, exposes dme reads/writes through GObj→Player Data indirection. |
-| `scenario.py`              | Trigger + observation. `force_action_state(...)`, `run_grab_trial(...)`, `classify_trial(...)`.                       |
-| `GALE01r2.ini`             | Vendored from libmelee (`{extra_codes}` substituted empty). Copied into the temp user dir as `GameSettings/GALE01r2.ini`. Replaces Slippi's default codes. |
+| File                            | Purpose                                                                                                              |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `melee_harness.py`              | `Harness` class. Launches Dolphin, hooks dme, F2-loads savestate, snapshots/restores MEM1, installs boot-time gecko C2 codes, exposes dme reads/writes through GObj→Player Data indirection. |
+| `scenario.py`                   | In-game trigger + observation helpers (`force_action_state(...)`, scratch addresses, action-state constants, `record_window`). |
+| `instr_writer.py`               | Phase 1 — meta-flush gecko. `install_meta_flush`, `wait_for_meta_flush_alive`, `flush_range`, `write_instrs`, `patch_branch`. |
+| `bp.py`                         | Phase 2 — software breakpoints. `set_breakpoint`, `wait_for_hit`, `wait_for_condition`, `read_snapshot`, `write_snapshot`, `continue_`, `step`, `remove_breakpoint`. |
+| `candidate_d_standalone_v2.py`  | **The shipped macro.** Netplay-safe Frame-1 JC-shine. Self-contained C2; paste into a Slippi user dir for live use. |
+| `candidate_d2.py`               | Same logic packaged as a harness-installable gecko (used by `play_d2.py`).                                            |
+| `play_d2.py`                    | Live-play driver: boot Dolphin with meta-flush + candidate_d2, you control P1, Fox auto-JC-shines on grab.            |
+| `GALE01r2.ini`                  | Vendored from libmelee (`{extra_codes}` substituted empty). Copied into the temp user dir as `GameSettings/GALE01r2.ini`. Replaces Slippi's default codes. |
 
 ### Verify scripts (kept, all passing)
-| File                        | Validates                                                                                                  |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `verify_savestate.py`       | Stage 1: launch + dme hook + autonomous F2 savestate load + MEM1 snapshot/restore + frame counter + entity observation. |
-| `verify_inject_gecko.py`    | Stage 3: gecko-C2 install via the bootloader actually patches the hook (counter advances ~100/s).          |
-| `verify_scenario.py`        | Stage 4: full iteration loop. Trigger lands, Fox stays neutral without a macro (baseline).                 |
+| File                            | Validates                                                                                                  |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `verify_savestate.py`           | Stage 1: launch + dme hook + autonomous F2 savestate load + MEM1 snapshot/restore + frame counter + entity observation. |
+| `verify_inject_gecko.py`        | Stage 2: boot-time gecko-C2 install actually patches the hook (counter advances ~100/s).                   |
+| `verify_meta_flush.py`          | Phase 1: dme-installed patch + meta-flush takes effect at runtime (counter advances at boot-time-equivalent rate). |
+| `verify_bp.py`                  | Phase 2: BP install → hit → snapshot → continue → remove lifecycle on hook `0x803775B8`.                    |
+| `verify_bp_cond.py`             | Phase 2.1: conditional BPs (`wait_for_condition` predicate skips spurious hits).                            |
+| `verify_bp_step.py`             | Phase 2.2: single-step. Also documents the "step across an existing gecko hook" hazard.                     |
+| `verify_d_standalone_v2.py`     | In-match smoke test: the shipped macro produces canonical JC-shine on a Marth-grabs-Fox savestate trial.    |
+| `verify_v2_with_keystone.py`    | Bit-for-bit diff between hand-encoded LOGIC and a keystone-assembled label-only PPC source. Catches hand-counted-offset bugs before launch. |
+| `verify_scenario.py`            | Stage 3: full iteration loop. Trigger lands, baseline behavior (no macro) reproduces.                       |
+| `verify_d2.py`                  | In-match smoke test: harness-installed `candidate_d2` produces canonical JC-shine across N trials.          |
 
-### Archived in `old&unused/`
-Everything from the pre-harness exploration era (read_*/manual_asm*/disas*/extract_*/observe_*/memory_watcher/memory_bridge/test_*/jump_p2/live_inject/inject_gecko/melee_bot/etc.) plus this-session diagnostics that aren't part of the iteration loop. Notable inhabitants:
+### Runtime probes (kept for future debugging)
+| File                            | What                                                                                                       |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `diag_meta_flush.py`            | Dump the meta-flush gecko's cave bytes, verify they match `META_FLUSH_LOGIC` word-for-word, exercise FLUSH_REQUEST round-trip. |
+| `diag_cave_dump.py`             | Generic: given a hook addr that's been gecko-patched, follow the branch + dump cave bytes against an expected LOGIC array. |
+| `diag_cave_layout.py`           | Discover where Slippi's codehandler placed your gecko (does NOT necessarily land in the documented `0x803FA3E8` region). |
+
+### Archived in `old&unused/` (gitignored)
+The pre-harness era (libmelee, MemoryWatcher, manual asm scripts) AND the candidate iteration history (a / b / b3 / d / d_min / d_probe* / d_v2 / d_v3 / d_standalone v1 / min_* / jump_on_grab). Browse for worked examples; do not depend on for live code. Notable inhabitants:
 
 | File                            | Why archived                                                                                        |
 | ------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `diag_interpreter.py`           | Measured Dolphin's CPU speed in interpreter mode (CPUCore=0). Result: ~5 fps, too slow.             |
-| `diag_inject_no_savestate.py`   | Proved dme writes to instruction memory are NOT observed by the emulated CPU even under CPUCore=0.   |
-| `verify_inject.py`              | Old dme-runtime-inject test; counter never advanced because Dolphin doesn't see dme code patches.   |
-| `diag_savestate.py`, `diag_manual_f2.py`, `diag_isolate.py`, `diag_hook.py` | Debugging artifacts from the libmelee era + failed CGEvent F2 first attempts. |
-| `smoke_test.py`                 | Single-controller libmelee smoke test from before the pivot.                                        |
-| `memory_bridge.py`, `memory_watcher.py`, `run_mw.py`, `dump_mw.py` | Pre-harness "Dolphin MemoryWatcher" approach (read-only via UDS); replaced by dme. |
-| `manual_asm*.py`, `disas*.py`, `read_*.py`, `inject_gecko.py`, `live_inject.py`, `melee_bot.py` | One-off scripts from the libmelee/lldb era. |
-| `SSBM_Gecko Codes - SuperCombo Wiki.html` + `_files/` | Saved wiki page; superseded by the curated `Gecko_Code_Analysis.md`. |
+| `diag_inject_no_savestate.py` + `.log` | Proved raw dme writes to instruction memory are NOT observed by the emulated CPU even under CPUCore=0. **The motivating diagnostic for the Phase 1 meta-flush design.** |
+| `candidate_b3.py`               | Last-session canonical JC-shine (in-harness, offline-only). Superseded by `candidate_d2.py` (netplay-safe). |
+| `candidate_d_standalone.py` (v1) | First standalone netplay-safe attempt; popped menu-panic dialogs. Replaced by v2 with MEM1 range-check. |
+| `candidate_d.py` / `d_v2.py` / `d_v3.py` | Iteration attempts at netplay-safe D before the encoding-bug fix in `d2`. |
+| Pre-harness scripts             | `memory_bridge.py`, `memory_watcher.py`, `manual_asm*.py`, `inject_gecko.py`, etc. — libmelee / MemoryWatcher / lldb era. |
 
-### Reference docs (pre-existing)
-| File                            | What it has                                                                                                                                |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `Project_Context.md`            | Pre-harness exploration history. Read for backstory; not authoritative for current architecture.                                            |
-| `Project_Addresses.md`          | Curated memory map (P1 entity ptr, action state offsets, character IDs). Slightly **incomplete** — does not call out the GObj→Player Data indirection. |
-| `Gecko_Code_Analysis.md`        | Disassembly of relevant Slippi-safe codes (Swap X/Z, UnclePunch X+Y, Flash Red L-Cancel). Useful templates.                                |
-| `Spot_Dodge_Macro.md`           | Test macro spec: hooks `0x803775C0`, keys on Port 1 pressing Z.                                                                            |
-| `SSBM memory address sheet/`    | **Authoritative** memory map. CSVs: `Global_Addresses`, `Entity_Data_Offsets`, `Char_Data_Offsets`, `Function_Addresses`, `Free_Memory`, `Action_State_Reference`, `ID_Lists`, etc. Check here first before assuming something is undocumented. |
-| `slippi-ssbm-asm-master/`       | The official Slippi gecko codeset (Bootloader, Online, Recording, Playback, External, Common). Build via `gecko` Go tool. Convention reference for any new `.asm` we author. |
-| `gecko-master/`                 | The `gecko` Go tool source. Compiles `.asm` files → `.ini` gecko codes.                                                                    |
+### Reference docs
+| File                                | What it has                                                                                                                                |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `README.md`                         | Top-level entry point for humans + new agents.                                                                                              |
+| `CLAUDE.md`                         | Auto-loaded by Claude Code. Architecture + gotchas in one page.                                                                             |
+| `WORKFLOW.md`                       | The debugger-driven macro-development workflow (BP + meta-flush usage patterns).                                                            |
+| `docs/Project_Context.md`           | Pre-harness exploration history. Read for backstory; not authoritative for current architecture.                                            |
+| `docs/Project_Addresses.md`         | Curated memory map. Starting point only — does not call out the GObj→Player Data `+0x2C` indirection.                                       |
+| `docs/Gecko_Code_Analysis.md`       | Disassembly of relevant Slippi-safe codes (Swap X/Z, UnclePunch X+Y, Flash Red L-Cancel). Useful templates.                                |
+| `docs/Spot_Dodge_Macro.md`          | Earlier hardware-PADStatus-hook macro spec; worked example of the `0x803775C0` hook.                                                       |
+| `docs/MACRO_PLAN.md`                | Original development plan (mostly executed; useful for "why these specific files exist" archaeology).                                       |
+| `docs/sessions/2026-05-15.md`       | Session log of Candidate B/D attempts — the D.1 puzzle that motivated the keystone-verification pattern.                                    |
+| `SSBM memory address sheet/`        | **Authoritative** memory map. CSVs: `Global_Addresses`, `Entity_Data_Offsets`, `Char_Data_Offsets`, `Function_Addresses`, `Free_Memory`, `Action_State_Reference`, `ID_Lists`, etc. Check here first before assuming something is undocumented. |
+| `slippi-ssbm-asm-master/`           | The official Slippi gecko codeset (Bootloader, Online, Recording, Playback, External, Common). Build via `gecko` Go tool. Convention reference for any new `.asm` we author. |
+| `gecko-master/`                     | The `gecko` Go tool source. Compiles `.asm` files → `.ini` gecko codes.                                                                    |
+| `dme_experiment/`                   | Parallel exploration: reproduce findings via pure-dme writes (no gecko codes). See its `README.md` and `FINDINGS.md`.                       |
 
 ## 5. Workflow — iterating on a candidate
 
@@ -248,29 +289,38 @@ For a complete inventory grep `slippi-ssbm-asm-master/**/*.asm` for `# Address:`
 1. **dme.hook() requires process name "Dolphin"** — Slippi's binary is "Slippi Dolphin". We launch via a hardlink at `/Users/andrewashman/Library/Application Support/Slippi Launcher/netplay/Slippi Dolphin.app/Contents/MacOS/Dolphin` to get the right `p_comm`.
 2. **`dme.hook()` must run on the main thread.** Wrapping in a daemon thread silently breaks attachment (returns but `is_hooked()` stays False).
 3. **Don't pre-open the controller FIFO read ends.** Empirically that breaks dme hooking even though it makes libmelee's `connect()` return instantly. (libmelee era artifact — irrelevant in current architecture but documented in case it crops up.)
-4. **dme writes to instruction memory are NOT seen by the emulated CPU**, even with `Core.CPUCore = 0` (pure interpreter). Use `Harness.install_gecko_c2(...)` instead. `Harness.inject()` is dead code; kept only as documentation of what doesn't work.
+4. **Raw dme writes to instruction memory are NOT seen by the emulated CPU**, even with `Core.CPUCore = 0` (pure interpreter). For boot-time install use `Harness.install_gecko_c2(...)`; for runtime install use `instr_writer.write_instrs(...)` (which issues `dcbf`/`icbi` via the meta-flush gecko before returning). `Harness.inject()` is dead code; kept only as documentation of what doesn't work.
 5. **Loading a Dolphin savestate corrupts libmelee's Slippi EXI channel** (`EXI SLIPPI: Invalid command byte: 0x3A` → permanent desync). Hence libmelee was dropped entirely.
 6. **Slippi's default GALE01 gecko codes panic on savestate load** with `IntCPU: Unknown instruction 00000007 at PC=80c833a4 last_PC=80001f18` (gecko codehandler branches into restored runtime heap). The vendored `GALE01r2.ini` override + `UsePanicHandlers=False` together silence this.
 7. **Dolphin Hotkey device must be `Quartz/0/Keyboard & Mouse`** in Hotkeys.ini for synthetic F2 to land. The user fixed this once; it persists in their real `USER_DIR/Config/Hotkeys.ini` and our `shutil.copytree` carries it into each tmp dir.
 8. **F2 fires too early to load a savestate** if sent right after `launch()`. We must wait for `POWERON_COUNT (0x804D7420)` to start ticking before sending F2 (Slippi Dolphin doesn't accept hotkeys until Melee is past initial boot).
 9. **Player data is at `*(GObj+0x2C)`, NOT directly at `0x80453130`'s pointee.** `0x80453130`'s pointee is a `GObj` struct (`Entity_Data_Offsets.csv`); offsets like `0x10`, `0x04`, `0x65C` are inside Player Data which is one indirection deeper. `Project_Addresses.md` glosses over this; the harness's `player_data_ptr(port)` helper does the indirection.
-10. **`Project_Addresses.md` is a curated subset** of the full address sheet in `SSBM memory address sheet/`. When chasing an SSBM fact, **always** check the address sheet CSVs first — they have things `Project_Addresses.md` omits (e.g., the frame counter, the GObj layout, the free-memory list).
+10. **`docs/Project_Addresses.md` is a curated subset** of the full address sheet in `SSBM memory address sheet/`. When chasing an SSBM fact, **always** check the address sheet CSVs first — they have things `Project_Addresses.md` omits (e.g., the frame counter, the GObj layout, the free-memory list).
 11. **macOS-specific:** SIP must be disabled (for `task_for_pid`). Accessibility permission must be granted to the Terminal/Python (for CGEvent F2). `AXIsProcessTrusted()` confirms.
 12. **macOS has no `timeout` cmd.** Use Python `_deadline` (SIGALRM-based) for hard wall-clock deadlines. SIGALRM does **not** interrupt blocking FIFO `open()` on the main thread, though, so libmelee's `connect()` couldn't be timed out that way.
 13. **Don't pipe Python output through `grep`** during long runs — line buffering hides progress. Use `python3 -u … > logfile` instead.
+14. **PPC r0-as-rA trap.** In `addi`, `addis`, `lis`, `stmw`, and any load/store with an `rA` field of 0, the encoded `0` reads as the literal value 0, **NOT** register r0. `addi r0, r0, 16` computes `16`, not `r0 + 16`. The first cut of `instr_writer.META_FLUSH_LOGIC` had exactly this bug; capstone disassembly caught it before launch. Always use r3..r12 (or any non-zero) as the base register in your handlers.
+15. **`lmw rD, d(rA)` with rA in [rD..r31] is undefined.** Restore r1 with a separate `lwz r1, ...` after `lmw r2, ...` rather than relying on `lmw r0, ...` to also restore r1. See the restore sequence in `bp.build_bp_handler`.
+16. **The meta-flush hook is at `0x803775C0`.** Don't reuse that hook for your own gecko/BP. The per-frame pad-read at `0x803775B8` is the obvious alternative.
+17. **Runtime patches don't survive `restore_snapshot()`.** Snapshot is taken before runtime patches exist; the 24 MB write-back wipes them. Either re-install after each restore, or install before `seed_snapshot`. Boot-time geckos survive because they're in MEM1 at snapshot time.
+18. **BP spin halts the entire PPC core.** Dolphin's other threads (audio, graphics, window) keep running, so the application stays responsive — but on a Slippi netplay session this would desync. The BP primitive is dev/offline only.
 
 ## 8. Limitations / open work
 
 - **Single-savestate scenario only.** The harness seeds from `GALE01.s02`. Multi-state scenarios would need additional savestates and slot routing.
-- **Trigger via action-state poke is an abstraction leak.** A macro that watches button presses (e.g., the `Spot_Dodge` test macro keying on Z) won't fire under the current `force_action_state` trigger. If we need to test such a macro, add a small persistent **input-driver gecko** that ORs Z into Port 1's PADStatus when a dme-controlled scratch flag is set. Architecture sketch:
-  ```
-  Hook: a per-pad-per-frame instruction in the pad-process loop
-  Logic: lwz <flag>; if nonzero, OR 0x10 into Port 1 PADStatus[0]; else skip
-  dme drives a 1-byte flag in scratch RAM to "press Z" for one frame
-  ```
-- **Fox's shine action state ID is not yet known.** Identify empirically by installing a working candidate, observing Fox's transitions in `classify_trial(...)`, and reading the `reaction_state` field. Add to scenario.py once known (e.g. `FOX_SHINE_GROUND = 0x...`).
-- **The harness restarts Dolphin per session, not per trial.** Multiple trials within one session is fine (the snapshot+restore loop). To test a *different candidate macro*, kill the harness and re-launch — gecko codes are baked into GameSettings at boot time and not hot-swappable.
-- **Final gecko-code shipping** still requires `powerpc-eabi-as` for proper assembly compilation via the `gecko-master/` Go tool. The repo's `.exe` assemblers are Windows-only; macOS users need to source a `powerpc-eabi-as` (e.g., from devkitPPC) when ready to compile the final macro. The iteration loop bypasses this by emitting raw PPC hex.
+- **`Harness.attach_to_running_dolphin()` doesn't exist.** Every script kills + relaunches Dolphin. With meta-flush in place an agent could iterate ~indefinitely on one Dolphin instance — would shave ~10 s per script run. Not built yet.
+- **No watchpoint primitive.** "Which instruction writes address X" requires hooking function entries known to manipulate X and narrowing from there. A search helper that scans the code segment for `stb/sth/stw` with a base register that *could* equal X would be a step up; not built yet.
+- **Step-over-existing-hook hazard.** `bp.step()` follows the captured "displaced original" — if that's already a gecko branch (e.g., stepping past `0x803775C0` while meta-flush is installed), step lands in the codehandler cave rather than the vanilla successor. Documented in `verify_bp_step.py`. A smarter step that detects gecko branches and steps to the cave's return point is future work.
+- **No live multi-macro swap.** Boot-time geckos are baked into `GameSettings/GALE01r2.ini`; to test a different macro you kill + relaunch. The meta-flush path *technically* lets you swap a gecko at runtime, but the harness doesn't expose that pattern yet.
+- **Final gecko-code shipping** still benefits from `powerpc-eabi-as` for proper assembly compilation via `gecko-master/`. The repo's `.exe` assemblers are Windows-only; macOS users need devkitPPC's `powerpc-eabi-as` to use the Go tool path. The current loop bypasses this by emitting raw PPC hex and verifying with `keystone-engine` (see `verify_v2_with_keystone.py`).
+
+### Things that ARE solved (and didn't used to be)
+
+These were in the "open" list in earlier session logs but no longer apply:
+
+- ~~"Fox's shine action state ID is not yet known."~~ Identified: `0x0168` ground startup, `0x0169` ground loop, `0x016D` aerial startup, `0x016E` aerial loop, `0x0170` aerial fall. Live in `scenario.py`. See `docs/sessions/2026-05-15.md`.
+- ~~"The harness restarts Dolphin per candidate."~~ Still true per *script*, but within a session the meta-flush path lets you swap PPC bytes at runtime without reboot.
+- ~~"Trigger via action-state poke is an abstraction leak."~~ Still true for some macros, but the BP primitive (`bp.py`) gives an alternate path: hook a function entry that runs when the input would be processed, snapshot, edit registers, continue.
 
 ## 9. Run order — first time setup checklist
 

@@ -1,1 +1,9 @@
 old&unused/
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Runtime logs (Dolphin's log, harness verify logs, exp run logs)
+*.log
+dme_experiment/runs/
