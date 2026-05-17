@@ -127,6 +127,31 @@ Crucially: **0 airdodges observed across all 20 trials**. The cycle-7
 counter-reset-on-non-aerial design is safe at the aerial→FallAerial
 boundary.
 
+## Universal-invariant verification (test_l_timer_invariant.py)
+
+Empirical proof the cycle is bounded. NAIR across 13 trials sweeping
+fast-fall delays (FF@0..FF@20, short and full hop) so Fox lands on 4
+distinct airborne durations (19, 26, 29, 34 frames). For each trial we
+sample `Char Data + 0x680` at every aerial frame. Result:
+
+- **Steady-state max(0x680) = 6 in every trial** (samples form a clean
+  `0,1,2,3,4,5,6,0,...` cycle).
+- **Landing-frame 0x680 ∈ {0, 4, 5}** — well below the 7-frame engine
+  window in every case.
+- All 13 trials L-cancelled (land-dur 7f vs control 15f).
+
+Note: the first aerial sample (sample[0]) shows pre-aerial carry-over
+(values 12-17) because at PadRead time on the engine's first aerial
+frame, action_state is still Fall (the documented PadRead-state lag).
+The macro starts pressing L on the second aerial frame from Python's
+view; from sample[1] onwards the cycle is bounded by 6.
+
+Theoretical edge case: if Fox is in an aerial state for fewer than 2
+engine frames (input A → aerial → land within one frame), the macro
+never gets to press L for that aerial and 0x680 reflects pre-aerial
+history. Not reachable in normal play -- aerial action states require
+the airborne flag and aerials have intrinsic startup frames.
+
 ## Empirical results (2026-05-17)
 
 Path #2 (Python writes to `0x804C1FAC`) is non-functional: writes are
