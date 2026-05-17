@@ -7,3 +7,6 @@ __pycache__/
 # Runtime logs (Dolphin's log, harness verify logs, exp run logs)
 *.log
 dme_experiment/runs/
+
+# macOS Finder metadata
+.DS_Store
