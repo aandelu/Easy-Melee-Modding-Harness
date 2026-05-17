@@ -1,0 +1,29 @@
+staging gecko C2 code + launching
+[harness +   0.0s] staging 1 gecko code(s) into GameSettings/GALE01r2.ini
+[harness +   0.0s] tmp user dir: /var/folders/k6/9x09x1p163l643qc5x0dvr_w0000gn/T/melee_harness_6t_d_xg6 (UsePanicHandlers=False)
+[harness +   0.0s] launching Dolphin
+[harness +   0.0s] Dolphin launched (pid 7280); log -> /Users/andrewashman/Desktop/melee/dolphin.log
+[harness +   4.5s] dme hooked on attempt 9
+waiting for the CPU to start ticking ...
+  CPU live (0 -> 58)
+hook 0x803775C0 reads as 0x482F3D50 via dme
+
+pre-watch counter @ 0x803FA428 = 0x672D4465
+polling counter for 15s ...
+  t= 1s  counter=0x672D4469  (delta 4)
+  t= 2s  counter=0x672D4495  (delta 48)
+  t= 3s  counter=0x672D450D  (delta 168)
+  t= 4s  counter=0x672D4587  (delta 290)
+  t= 5s  counter=0x672D45FF  (delta 410)
+  t= 6s  counter=0x672D4677  (delta 530)
+  t= 7s  counter=0x672D46F1  (delta 652)
+  t= 8s  counter=0x672D4765  (delta 768)
+  t= 9s  counter=0x672D47DB  (delta 886)
+  t=10s  counter=0x672D4851  (delta 1004)
+  t=11s  counter=0x672D48C7  (delta 1122)
+  t=12s  counter=0x672D493B  (delta 1238)
+  t=13s  counter=0x672D49BD  (delta 1368)
+  t=14s  counter=0x672D4A39  (delta 1492)
+  t=15s  counter=0x672D4AAF  (delta 1610)
+
+[PASS] gecko-installed payload runs at boot (1610 hits in 15s ~= 107/s).

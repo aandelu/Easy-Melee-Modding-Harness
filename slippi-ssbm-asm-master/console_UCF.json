@@ -1,0 +1,35 @@
+{
+  "outputFiles": [
+    {
+      "file": "Output/Console/g_ucf.bin"
+    },
+    {
+      "file": "Output/Console/g_ucf.txt"
+    }
+  ],
+  "codes": [
+    {
+      "name": "UCF Slippi",
+      "authors": [
+        "Dan Salvato",
+        "tauKhan",
+        "UnclePunch",
+        "Fizzi"
+      ],
+      "build": [
+        {
+          "type": "injectFolder",
+          "sourceFolder": "External/UCF 0.8/Logic",
+          "isRecursive": true,
+          "annotation": "UCF v0.8"
+        },
+        {
+          "type": "injectFolder",
+          "sourceFolder": "External/UCF 0.8/Indicator",
+          "isRecursive": true,
+          "annotation": "UCF CSS Indicator"
+        }
+      ]
+    }
+  ]
+}

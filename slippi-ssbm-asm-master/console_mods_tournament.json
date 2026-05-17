@@ -1,0 +1,67 @@
+{
+  "outputFiles": [
+    {
+      "file": "Output/Console/g_mods_tournament.bin"
+    },
+    {
+      "file": "Output/Console/g_mods_tournament.txt"
+    }
+  ],
+  "codes": [
+    {
+      "name": "Full tournament codes",
+      "authors": ["Achilles", "Dan Salvato", "tauKhan", "UnclePunch"],
+      "description": ["Tournament mods to improve fair competition"],
+      "build": [
+        {
+          "type": "injectFolder",
+          "sourceFolder": "External/NeutralSpawn",
+          "annotation": "Neutral Spawns [UnclePunch]"
+        },
+        {
+          "type": "injectFolder",
+          "sourceFolder": "External/Hide Nametag When Invisible",
+          "annotation": "Hide Nametag When Invisible [Achilles1515]"
+        },
+        {
+          "type": "injectFolder",
+          "sourceFolder": "External/Closing CSS Door Preserves Nametag",
+          "isRecursive": true,
+          "annotation": "Closing CSS Door Preserves Nametag [UnclePunch]"
+        },
+        {
+          "type": "injectFolder",
+          "sourceFolder": "External/Unplugging Closes CSS Door",
+          "isRecursive": true,
+          "annotation": "Unplugging Closes CSS Door [UnclePunch]"
+        },
+        {
+          "type": "injectFolder",
+          "sourceFolder": "External/FreezeGlitchFix",
+          "isRecursive": true,
+          "annotation": "Prevent freeze glitch [tauKhan]"
+        },
+        {
+          "type": "injectFolder",
+          "sourceFolder": "External/CSS Player Hands Default to HMN Button",
+          "annotation": "CSS Player Hands Default to HMN Button [Achilles1515]"
+        },
+        {
+          "type": "injectFolder",
+          "sourceFolder": "External/Disable FoD During Doubles",
+          "annotation": "Disable FoD During Doubles [UnclePunch]"
+        },
+        {
+          "type": "injectFolder",
+          "sourceFolder": "External/Toggle Rumble From CSS",
+          "annotation": "Toggle Rumble From CSS [Dan Salvato]"
+        },
+        {
+          "type": "injectFolder",
+          "sourceFolder": "External/Stage Striking",
+          "annotation": "Stage Striking on SSS [Dan Salvato]"
+        }
+      ]
+    }
+  ]
+}

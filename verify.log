@@ -1,0 +1,45 @@
+
+============================================================
+Launching Dolphin + hooking dme
+============================================================
+[harness +   0.0s] tmp user dir: /var/folders/k6/9x09x1p163l643qc5x0dvr_w0000gn/T/melee_harness_cuz2fo6j (UsePanicHandlers=False)
+[harness +   0.0s] launching Dolphin
+[harness +   0.0s] Dolphin launched (pid 9166); log -> /Users/andrewashman/Desktop/melee/dolphin.log
+[harness +   4.5s] dme hooked on attempt 9
+launched, dme hooked
+
+============================================================
+Seeding scenario snapshot (load savestate slot 2 via Dolphin menu)
+============================================================
+[harness +   4.5s] auto-loading savestate via synthetic F2
+[harness +   6.0s] CPU live (power-on counter 0 -> 1)
+[harness +   8.1s] sent synthetic F2 (attempt 1)
+[harness +   8.3s] in-game detected (P1 entity ptr 0x80C7D260)
+[harness +   8.5s] snapshotted MEM1 (25165824 bytes)
+[harness +   9.0s] frame counter live at 0x804D7420
+
+============================================================
+Inspecting seeded state (pure dme observation)
+============================================================
+  port 1: entity_ptr=0x80C7D260 char_id=0x12 action_state=0x000E port_id=0
+  port 2: entity_ptr=0x80CC9340 char_id=0x01 action_state=0x000E port_id=1
+
+============================================================
+Frame counter check (timing oracle)
+============================================================
+  counter 0x804D7420: 4063 -> 4073 (advanced 10 over wait_frames(10))
+
+============================================================
+Testing restore_snapshot (reset must revert MEM1)
+============================================================
+snapshot frame=4055  cave word=0x804D5860
+wrote sentinel to cave 0x803FA3E8: read back 0xDEADBEEF  write_ok=True
+after running forward, frame=4103
+[harness +   9.8s] restored MEM1 snapshot
+after restore: cave word=0x804D5860 (cave_revert_ok=True)
+after restore: frame=4058 vs snap 4055 (frame_revert_ok=True)
+
+============================================================
+Result
+============================================================
+[PASS] direct launch + dme hook, scenario observable via dme, frame counter live, restore_snapshot reverts MEM1.

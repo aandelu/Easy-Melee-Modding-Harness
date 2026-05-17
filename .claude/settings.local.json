@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import melee, os; print\\(os.path.dirname\\(melee.__file__\\)\\)\")",
+      "Bash(python3 -c \"import melee,os; d=os.path.dirname\\(melee.__file__\\); print\\(open\\(os.path.join\\(d,'console.py'\\)\\).read\\(\\)\\)\")",
+      "Bash(ln '/Users/andrewashman/Library/Application Support/Slippi Launcher/netplay/Slippi Dolphin.app/Contents/MacOS/Slippi Dolphin' '/Users/andrewashman/Library/Application Support/Slippi Launcher/netplay/Slippi Dolphin.app/Contents/MacOS/Dolphin')",
+      "Bash(find . -maxdepth 2 -name \"*.py\" -newer Project_Context.md)",
+      "Bash(find . -maxdepth 2 -name \"*.py\")",
+      "Bash(python3 smoke_test.py)",
+      "Bash(kill 58442)",
+      "Bash(pkill -9 -x Dolphin)",
+      "Bash(pkill -9 -f \"verify_savestate\\\\|diag_\")",
+      "Bash(awk '{print $2,$11}')",
+      "Bash(python3 -u verify_savestate.py)",
+      "Bash(echo \"verify pid $!\")"
+    ]
+  }
+}

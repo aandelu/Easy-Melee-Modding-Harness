@@ -1,0 +1,29 @@
+{
+  "outputFiles": [
+    {
+      "file": "Output/Console/g_pal.bin"
+    },
+    {
+      "file": "Output/Console/g_pal.txt"
+    }
+  ],
+  "codes": [
+    {
+      "name": "PAL Toggle",
+      "authors": [
+        "UnclePunch"
+      ],
+      "description": [
+        "Includes all character balances, Samus Cannot Bomb Jump Out of Zair, Remove Extender, DK Keeps Charge When Hit During Up B, Detection Bubbles Do Not Skip Hurtbox Collision Check, Freeze Glitch Fix, PAL Stock Icons and PAL CSS Indicator"
+      ],
+      "build": [
+        {
+          "type": "injectFolder",
+          "sourceFolder": "External/PAL",
+          "isRecursive": true,
+          "annotation": "PAL Mods"
+        }
+      ]
+    }
+  ]
+}

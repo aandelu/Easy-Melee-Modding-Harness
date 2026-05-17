@@ -1,0 +1,7 @@
+Offset,Hex,Value,Effect,Comments
+0x145D8,00000280,640.0,Horizontal Viewport Stretch,
+0x145DC,000001E0,480.0,Vertical Viewport Stretch,
+0x145F8,41200000,10.0,Near plane clipping,
+0x145FC,459C4000,5000.0,Far plane clipping,
+0x14600,41C7FFFF,24.999998,Screen Field of view,
+0x14604,3F9BBBBF,1.216667,Screen Aspect ratio,

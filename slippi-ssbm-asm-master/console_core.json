@@ -1,0 +1,194 @@
+{
+  "outputFiles": [
+    {
+      "file": "Output/Console/GALE01r2.ini",
+      "header": [
+        "# GALE01 - Super Smash Bros. Melee NTSC-U 1.02",
+        "",
+        "[Core]",
+        "CPUThread = True",
+        "GPUDeterminismMode = fake-completion",
+        "PollingMethod = OnSIRead",
+        "FastDiscSpeed = True",
+        "",
+        "[Gecko_Enabled]",
+        "$General",
+        "$Slippi Recording",
+        "",
+        "[Gecko]"
+      ]
+    }
+  ],
+  "codes": [
+    {
+      "name": "General",
+      "authors": [
+        "Achilles",
+        "Dan Salvato",
+        "Magus",
+        "UnclePunch",
+        "Zauron",
+        "Datel",
+        "donny2112"
+      ],
+      "build": [
+        {
+          "type": "injectFolder",
+          "sourceFolder": "External/Boot to CSS",
+          "isRecursive": true,
+          "annotation": "Boot to CSS"
+        },
+        {
+          "type": "binary",
+          "sourceFile": "Binary/FasterMeleeSettings/UnlockAll.bin",
+          "annotation": "Unlock All Characters and Stages [Datel]"
+        },
+        {
+          "type": "binary",
+          "sourceFile": "Binary/FasterMeleeSettings/StockMode.bin",
+          "annotation": "Stock Mode [Magus]"
+        },
+        {
+          "type": "binary",
+          "sourceFile": "Binary/FasterMeleeSettings/4Stocks.bin",
+          "annotation": "4 Stocks [Magus]"
+        },
+        {
+          "type": "binary",
+          "sourceFile": "Binary/FasterMeleeSettings/8Minutes.bin",
+          "annotation": "8 Minutes [Magus]"
+        },
+        {
+          "type": "binary",
+          "sourceFile": "Binary/FasterMeleeSettings/NoItems.bin",
+          "annotation": "No Items [Magus]"
+        },
+        {
+          "type": "binary",
+          "sourceFile": "Binary/FasterMeleeSettings/SinglesStages.bin",
+          "annotation": "Singles Stages [Magus]"
+        },
+        {
+          "type": "binary",
+          "sourceFile": "Binary/FasterMeleeSettings/DisableSpecialMessages.bin",
+          "annotation": "Disable Special Messages [Most]"
+        },
+        {
+          "type": "binary",
+          "sourceFile": "Binary/FasterMeleeSettings/DisableTrophyMessages.bin",
+          "annotation": "Disable Trophy Messages [Achilles]"
+        },
+        {
+          "type": "binary",
+          "sourceFile": "Binary/FasterMeleeSettings/CStickSinglePlayer.bin",
+          "annotation": "C-Stick in Single Player [Zauron]"
+        },
+        {
+          "type": "binary",
+          "sourceFile": "Binary/FasterMeleeSettings/CssFromDebugMenu.bin",
+          "annotation": "Exiting Debug Menu Returns to CSS [Achilles]"
+        },
+        {
+          "type": "binary",
+          "sourceFile": "Binary/FasterMeleeSettings/FasterCssLoad.bin",
+          "annotation": "Faster CSS Load [UnclePunch]"
+        },
+        {
+          "type": "binary",
+          "sourceFile": "Binary/OsReportPrintOnCrash.bin",
+          "annotation": "Print OSReport on Crash [UnclePunch]"
+        },
+        {
+          "type": "injectFolder",
+          "sourceFolder": "External/Skip Memcard Prompt",
+          "isRecursive": true,
+          "annotation": "Skip Memcard Prompt [UnclePunch]"
+        },
+        {
+          "type": "injectFolder",
+          "sourceFolder": "External/LRAStart From SSS Goes to CSS",
+          "isRecursive": true,
+          "annotation": "LRAStart From SSS Goes to CSS [UnclePunch]"
+        },
+        {
+          "type": "injectFolder",
+          "sourceFolder": "External/Rumble Off",
+          "isRecursive": true,
+          "annotation": "Rumble Off [UnclePunch]"
+        }
+      ]
+    },
+    {
+      "name": "Slippi Recording",
+      "authors": [
+        "Fizzi",
+        "Achilles",
+        "UnclePunch",
+        "Nikki",
+        "jmlee337",
+        "Krohnos"
+      ],
+      "description": [
+        "Used in conjunction with Slippi plugged into PortB to extract game data"
+      ],
+      "build": [
+        {
+          "type": "injectFolder",
+          "sourceFolder": "Recording",
+          "isRecursive": true,
+          "annotation": "Slippi Recording [Fizzi, Achilles, UnclePunch]"
+        },
+        {
+          "type": "injectFolder",
+          "sourceFolder": "Common",
+          "isRecursive": false
+        },
+        {
+          "type": "injectFolder",
+          "sourceFolder": "Common/Preload Stadium Transformations",
+          "isRecursive": true,
+          "annotation": "Preload Stadium Transformations [UnclePunch]"
+        },
+        {
+          "type": "injectFolder",
+          "sourceFolder": "Common/Initialize Stage Data",
+          "isRecursive": true,
+          "annotation": "Initialize Stage Data [UnclePunch]"
+        },
+        {
+          "type": "injectFolder",
+          "sourceFolder": "Common/Initialize Player Data",
+          "isRecursive": true,
+          "annotation": "Initialize Player Data [UnclePunch]"
+        },
+        {
+          "type": "injectFolder",
+          "sourceFolder": "Common/EXITransferBuffer",
+          "annotation": "EXI Transfer Buffer"
+        },
+        {
+          "type": "injectFolder",
+          "sourceFolder": "Common/Gecko",
+          "annotation": "Static function to process Gecko codes [Fizzi]"
+        },
+        {
+          "type": "injectFolder",
+          "sourceFolder": "Common/ConsoleOverrides",
+          "annotation": "Forces values for proper console operation [Fizzi]"
+        },
+        {
+          "type": "injectFolder",
+          "sourceFolder": "Common/NanaDeterminism",
+          "isRecursive": true,
+          "annotation": "Makes Nana inputs deterministic [UnclePunch, metaconstruct, Fizzi]"
+        },
+        {
+          "type": "injectFolder",
+          "sourceFolder": "Common/PSCameraIndependentMonitor",
+          "isRecursive": true,
+          "annotation": "Avoids PS + Widescreen desyncs [Fizzi]"
+        }
+      ]
+    }
+  ]
+}

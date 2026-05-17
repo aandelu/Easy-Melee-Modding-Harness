@@ -1,0 +1,38 @@
+Unnamed: 0,Preliminary Info: https://smashboards.com/threads/custom-subaction-event-character-data-modifications.429112/#post-20920399,Unnamed: 2
+Bone lookup table entry,Size 0x10,
+0x0,"""Bone Table 1"" pointer",
+0x4,"""Bone Table 2"" pointer",
+0x8,Bone Flags,Float
+0xC,Bone Parent ID + 1 ?,
+0xD,???,
+0xE-0xF,???,
+,,
+Bone Table 1 Entry,,
+0x0,(Parent Bone?),Pointer
+0x4,,Int
+0x8,(Child Bone?),Bone Table Entry Pointer
+0xC,(Child Bone?),Bone Table Entry Pointer
+0x10,(Child Bone?),Bone Table Entry Pointer
+0x14,???,Flags?
+0x18,???,
+0x1C,"""ZXY 1""",Float[3]
+0x28,,Float? / 0x1C + 0x28 are sometimes set to the quaternion representation of the rotation (see 8000c630)
+0x2C,ZXY Bone Scale,Float[3]
+0x38,"""ZXY 3""",Float[3]
+0x44,"""ZXY 4""'",Float[3]
+0x50,"""ZXY 5""",Float[3]
+0x5C,"""ZXY 6""",Float[3]
+0x68,"""ZXY 7""",Float[3]
+0x74,,
+0x78,,
+0x7C,,
+0x80,,
+0x84,Animation Reference Table Entry?,Pointer. Pointer to table entry of permanant dimensions/coordinates. This pointer can change between different animations (verify?).
+,,
+,,
+Bone Table 2 Entry,,
+,,
+,Animation Reference Table Entry?,Pointer. Pointer to table entry of permanant dimensions/coordinates. This pointer can change between different animations (verify?).
+,,
+,,
+Animation Reference Table Entry,,

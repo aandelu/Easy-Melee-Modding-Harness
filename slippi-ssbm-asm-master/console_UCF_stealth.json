@@ -1,0 +1,29 @@
+{
+  "outputFiles": [
+    {
+      "file": "Output/Console/g_ucf_stealth.bin"
+    },
+    {
+      "file": "Output/Console/g_ucf_stealth.txt"
+    }
+  ],
+  "codes": [
+    {
+      "name": "UCF Slippi",
+      "authors": [
+        "Dan Salvato",
+        "tauKhan",
+        "UnclePunch",
+        "Fizzi"
+      ],
+      "build": [
+        {
+          "type": "injectFolder",
+          "sourceFolder": "External/UCF 0.8/Logic",
+          "isRecursive": true,
+          "annotation": "UCF v0.8"
+        }
+      ]
+    }
+  ]
+}
