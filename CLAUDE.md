@@ -4,18 +4,20 @@ This file is auto-loaded by Claude Code. It's the entry point for any agent work
 
 ## Project goal
 
-Creating a frame-1 reaction macro for Super Smash Bros. Melee (NTSC 1.02): where the online opponent starts a grab,  and Fox (the offline player) executes a jump-cancelled shine on the same frame. 
+Creating a frame-1 reaction macro for Super Smash Bros. Melee (NTSC 1.02): where the online opponent starts a grab,  and Fox (the offline player) executes a jump-cancelled shine on the same frame. The output is a gecko code.
 
 
 
-A Frame-1 reaction macro for Super Smash Bros. Melee (NTSC 1.02): when Marth (P1) starts a grab, Fox (P2) executes a jump-cancelled shine on the same frame. The shipped macro is `candidate_d_standalone_v2.py` (paste into a Slippi user dir to use offline or online). The harness exists so additional macros can be built/iterated with breakpoint-driven debugging. See `docs/Project_Context.md` for the full pre-harness history.
+A Frame-1 reaction macro for Super Smash Bros. Melee (NTSC 1.02): when Marth (P1) starts a grab, Fox (P2) executes a jump-cancelled shine on the same frame. The offline shipped macro is `candidate_d_standalone_v2.py` (paste into a Slippi user dir to use offline or online). The harness exists so additional macros can be built/iterated with breakpoint-driven debugging. See `docs/Project_Context.md` for the full pre-harness history.
 
 ## First moves for a new agent
 
 1. Skim **this file** (architecture + gotchas).
 2. If you need the harness running, see [`HARNESS.md`](HARNESS.md) §9 (first-time setup) — SIP disabled, Accessibility granted, Dolphin hardlink in place.
 3. If you're using the debugger to discover something new, see [`WORKFLOW.md`](WORKFLOW.md).
-4. Looking up an address/offset/state ID? Search [`SSBM memory address sheet/*.csv`](SSBM%20memory%20address%20sheet/) **first** — it's authoritative; `docs/Project_Addresses.md` is a curated subset.
+4. **Building a NEW macro?** Start at [`docs/MACRO_DEV_HANDOFF.md`](docs/MACRO_DEV_HANDOFF.md) — the generic jumpstart: what to read, the injection points, and how the offline + online dev/test cycles actually work. Worked examples: [`docs/L_CANCEL_HANDOFF.md`](docs/L_CANCEL_HANDOFF.md) (analog-trigger pulse) and [`docs/CACTUAR_DASH_HANDOFF.md`](docs/CACTUAR_DASH_HANDOFF.md) (a STICK input-veto + multi-frame state machine + runtime delay compensation — the most complex shipped macro).
+5. **Building/testing any macro that must run in a live ONLINE (netplay) match?** Read [`docs/ONLINE_MACRO_GUIDE.md`](docs/ONLINE_MACRO_GUIDE.md) first (+ [`docs/ONLINE_REFERENCE.md`](docs/ONLINE_REFERENCE.md)). Online has different rules than the offline savestate loop — savestate loads wipe boot geckos, only producer-side input edits are desync-safe, and the dev loop is savestate-baked-meta-flush + runtime dme patching. The `online_*.py` scripts are the worked experiments.
+6. Looking up an address/offset/state ID? Search [`SSBM memory address sheet/*.csv`](SSBM%20memory%20address%20sheet/) **first** — it's authoritative; `docs/Project_Addresses.md` is a curated subset.
 
 ## Architecture in one page
 

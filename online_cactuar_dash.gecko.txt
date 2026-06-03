@@ -1,0 +1,66 @@
+# ============================================================================
+# Cactuar Dash  (Super Smash Bros. Melee NTSC 1.02 / GALE01) -- netplay-safe
+# ============================================================================
+# WHAT: while you're in a run (Run 0x15 / RunBrake 0x17) and slam the stick to the
+#   extreme OPPOSITE of your facing, this vetoes the slow turnaround (TurnRun 0x13)
+#   and instead crouches ~7 frames, then releases so your held stick dashes you out
+#   the new direction. Local player only (resolved via the ODB; works as P1/P2).
+#
+# NETPLAY-SAFE: producer-side input edit at 0x8034E680 (inside PAD_Read, upstream of
+#   Slippi's EXI scrape) -> the peer receives the edited input; no desync. Validated
+#   online: 48/49 run-reversals crouched, 0 desync.
+#
+# DELAY-ADAPTIVE: the crouch is released the moment you become actionable, computed
+#   as squat frame (6 - ODB_DELAY_FRAMES) -- read at runtime -- so the dash-out lands
+#   on time whether the connection runs 1 or 2 frames of input delay. No tuning knob.
+#
+# INSTALL (normal online play):
+#   1. Slippi Launcher -> (gear) -> Configure Dolphin -> Config -> open the Gecko
+#      code list for GALE01, OR edit Sys/GameSettings/GALE01r2.ini -- "Add New Code",
+#      paste everything below the title line, ENABLE it.
+#   2. Play online normally. The code is active in all matches (no savestate needed).
+#   (Only the dev harness needed a slot-4 bake; normal play does not.)
+# ============================================================================
+
+$Cactuar Dash
+C234E680 00000028
+9421FFE0 90A10008
+90C1000C 90E10010
+91010014 91210018
+9141001C 810DB61C
+2C080000 418200F4
+5509463E 28090080
+408200E8 89280000
+1D290E90 3CA08045
+60A53130 7CA54A14
+80A50000 2C050000
+418200C8 54A9463E
+28090080 408200BC
+80A5002C 2C050000
+418200B0 54A9463E
+28090080 408200A4
+80E50010 54E7043E
+2C070027 40820030
+89280021 21290006
+80C50894 54CA4E3E
+54C6027E 64C60080
+214A0096 7CC65430
+7C064800 4080006C
+48000058 2C070015
+4182000C 2C070017
+40820058 88C40003
+7CC60774 7CC9FE70
+7CC64A78 7CC93050
+2C060018 4181003C
+8145002C 88C40002
+7CC60774 2C0A0000
+41800010 2C06FFA0
+41810020 4800000C
+2C060060 41800014
+38C00000 98C40002
+38C0FF80 98C40003
+80A10008 80C1000C
+80E10010 81010014
+81210018 8141001C
+38210020 88030007
+60000000 00000000
