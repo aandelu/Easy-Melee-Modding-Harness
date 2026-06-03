@@ -1,0 +1,72 @@
+# Online Auto L-Cancel [analog L]  — NTSC 1.02 (GALE01)
+#
+# Netplay-safe auto-L-cancel. While the LOCAL player is in an aerial attack
+# (NAIR..DAIR, 0x41-0x45), it pulses a LIGHT ANALOG L trigger (value 0x80, below
+# the 0xAA digital-conversion threshold) every other frame. Local player resolved
+# dynamically from the ODB, so it works as P1 or P2. All pointers MEM1-checked.
+#
+# *** v4 (ANALOG L — supersedes the digital-Z v1-v3) ***
+# Switched from pulsed digital Z to pulsed light analog L. This fixes the two
+# remaining v3 bugs at once, by construction:
+#   * HITLAG MISS (aerials that connect): v3 anchored the Z cadence to the
+#     action-state frame counter (0x894), which FREEZES during hitlag -> the pulse
+#     stalled and the L-cancel window expired. The analog pulse is keyed to the
+#     GLOBAL frame counter parity, which keeps ticking through hitlag. Confirmed
+#     online: 10/10 hit-aerials L-cancelled.
+#   * TRAILING SPILL (aerial ends in the air -> airdodge/re-nair): a light analog L
+#     (value < 0xAA) sets NO digital button bit (PAD_Read only converts analog>=0xAA
+#     to digital L at 0x8034E244) and presses NO Z, so it physically cannot airdodge
+#     (the airdodge trigger-check reads the digital L/R timer 0x680) or re-nair (Z
+#     includes A). Zero misfires across all tests.
+# It still L-cancels because a pulsed (rising-edge) light trigger satisfies the
+# L-cancel window. HELD analog does NOT work (needs the edge) -> pulse every frame.
+#
+# INJECTION POINT (producer-side / netplay-safe; found via disasm_lcancel_analog.py):
+# PAD_Read finalizes the analog L byte 6(r4) at 0x8034E67C (per-port calibration)
+# and the report-builder returns at 0x8034E69C. We hook 0x8034E680 -- analog L is
+# final, function not yet returned, well upstream of TriggerSendInput's EXI scrape
+# (0x80376A28). r4 = local PADStatus; r3 = calibration ptr (kept for the displaced
+# lbz r0,7(r3)).
+#
+# VALIDATED:
+#   * Offline (slot 2): pulsed analog L 15f -> ~7f, LCancelStatus success, 0 misfire
+#     across values 0x50-0xA9 (offline_analog_lcancel.py).
+#   * Online self-drive: 14.8f -> 7.1f, LCancelStatus 15/15 success, no desync
+#     (online_analog_selfdrive.py).
+#   * Online hitlag (peer walked into the nairs): 10/10 hit-aerials L-cancelled,
+#     0 grab/airdodge misfire, no desync (online_analog_hitlag.py).
+#
+# DEPLOY (so it survives the F4 savestate-entry — see docs/ONLINE_MACRO_GUIDE.md §3):
+#   1. Slippi Manager -> Add Gecko Code -> paste the block below (REPLACE the old one).
+#   2. Enter an online match the normal way (NOT via F4).
+#   3. Save state to slot 4 (overwrites the F4 direct-connect-entry savestate).
+#
+# Regenerate with: make_online_analog_lcancel_gecko.py
+
+$Online Auto L-Cancel [analog L]
+C234E680 00000019
+9421FFE0 90A10008
+90C1000C 90E10010
+91010014 91210018
+810DB61C 2C080000
+41820088 5509463E
+28090080 4082007C
+89280000 1D290E90
+3CA08045 60A53130
+7CA54A14 80A50000
+2C050000 4182005C
+54A9463E 28090080
+40820050 80A5002C
+2C050000 41820044
+54A9463E 28090080
+40820038 80E50010
+54E7043E 2C070041
+41800028 2C070045
+41810020 3D208047
+61299D60 81290000
+71290001 4082000C
+38C00080 98C40006
+80A10008 80C1000C
+80E10010 81010014
+81210018 38210020
+88030007 00000000

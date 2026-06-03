@@ -66,7 +66,17 @@ into a runtime-installed PPC routine via the meta-flush primitive.
 | `0x0046–0x004A` | LandingAir* | landing during the matching aerial (L-cancel target) |
 | `0x002A` | Landing | normal landing (no aerial active — not our target) |
 
-## L-cancel check function (engine code)
+## "L-cancel check function" — CORRECTION (2026-05-22)
+
+**This function is actually the AIRBORNE TRIGGER / AIRDODGE check, not the landing
+L-cancel.** Re-disassembled this session (`disasm_lcancel_analog.py`): the function
+at `0x8008E498` only runs for action states `0x19`–`0x26` (jumps/falls) and `0xEC`
+(EscapeAir/airdodge), and reads the **digital** L/R timer `0x680`. The *landing*
+L-cancel runs in a different routine that checks landing states `0x46`–`0x4A` and
+sets `LCancelStatus` (Player Data `+0x25FF`) — that's the correct observable. The
+`0x680`-reads-here detail still explains airdodge behavior (and why a light analog
+L `< 0xAA`, which never touches `0x680`, can't airdodge). Keep the rest below for
+the offline digital macro, but don't treat it as the landing-cancel check.
 
 Found at `0x8008E4A8`-`0x8008E4E8` (Slippi-build address). Key lines:
 
