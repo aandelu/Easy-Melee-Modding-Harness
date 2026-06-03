@@ -256,14 +256,23 @@ def gecko_c2_lines(hook_addr: int, logic_words: list, displaced_orig: int,
     Layout per gecko spec:
       header: `C2{hook_lower_24:6X} {n_lines:8X}`
       then n_lines of `{word_hi:8X} {word_lo:8X}` (two 32-bit words per line)
-      padded to an even word count with 0x00000000 if odd.
+
+    CRITICAL: the C2 codehandler OVERWRITES the LAST word of the body with the
+    branch-back (it does not append). So the body must end with a throwaway word,
+    or the codehandler clobbers your last real instruction. We always append a
+    0x00000000 branch-slot as the final word (and a NOP before it if needed to
+    keep the count even), so the displaced original is never the last word. Bug
+    history: when len(logic)+displaced was EVEN, the old code left the displaced
+    as the last word -> codehandler ate it -> button extraction never ran ->
+    corrupted inputs. Idempotent displaced loads (lbz/lhz) and odd counts hid it.
 
     Returns a list of strings -- first element is the title line
     ("$harness: <name>"), then the gecko code lines.
     """
     words = list(logic_words) + [displaced_orig]
-    if len(words) % 2 == 1:
-        words.append(0)
+    if len(words) % 2 == 0:
+        words.append(0x60000000)        # nop, so the branch-slot below stays last + count even
+    words.append(0x00000000)            # sacrificial branch slot (codehandler overwrites it)
     n_lines = len(words) // 2
     header = (0xC2000000 | (hook_addr & 0x00FFFFFF))
     out = [f"$harness: {code_name}"]
@@ -376,7 +385,10 @@ class Harness:
 
         shutil.copytree(real / "Config", tmp / "Config", symlinks=False)
         dolphin_ini = tmp / "Config" / "Dolphin.ini"
-        cfg = configparser.ConfigParser()
+        # strict=False: newer Slippi builds write a duplicate 'isopaths' key in
+        # [General]; the default strict parser raises DuplicateOptionError. We only
+        # touch [Interface].UsePanicHandlers, so last-value-wins is fine.
+        cfg = configparser.ConfigParser(strict=False)
         if dolphin_ini.exists():
             cfg.read(dolphin_ini)
         if not cfg.has_section("Interface"):
