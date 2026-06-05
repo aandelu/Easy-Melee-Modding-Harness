@@ -11,6 +11,7 @@ Triggered by the Mac over SSH via a pre-registered *interactive* Scheduled Task
     python melee_peer.py ensure    # launch Slippi Dolphin if not already running
     python melee_peer.py enter     # ensure running, focus, F1 (load slot 1), Enter
     python melee_peer.py kill      # kill Slippi Dolphin
+    python melee_peer.py restart   # force-kill + wait-dead + relaunch (recover a wedge)
     python melee_peer.py debug     # print Slippi process state + visible windows
 
 IMPORTANT -- why a Scheduled Task and not plain SSH:
@@ -201,7 +202,31 @@ def _kill():
     _log(f"taskkill rc={r.returncode}: {(r.stdout or r.stderr).strip()}")
 
 
+def _wait_until_dead(timeout_s: float = 10.0) -> bool:
+    """Poll until Slippi Dolphin is gone from tasklist. taskkill /F returns
+    immediately but the process takes a moment to actually exit -- relaunching
+    before it's gone risks two instances."""
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        if not _dolphin_running():
+            return True
+        time.sleep(0.25)
+    return False
+
+
 # --- commands ---------------------------------------------------------------
+def restart():
+    """Recovery for a wedged/crashed peer: force-kill Slippi Dolphin, wait for
+    it to fully exit, then relaunch + wait for the window. Does NOT re-enter
+    online -- the caller (or the harness retry loop) re-sends F1/Enter."""
+    _kill()
+    if not _wait_until_dead(10.0):
+        _log("WARNING: Dolphin still in tasklist 10s after kill; relaunching anyway")
+    time.sleep(1.0)
+    ensure_running(wait_ready=True)
+    _log("restart complete (Slippi relaunched)")
+
+
 def enter():
     """ensure running -> focus -> F1 (load slot 1) -> wait -> Enter (connect)."""
     hwnd = ensure_running(wait_ready=True) or _find_dolphin_hwnd()
@@ -241,10 +266,12 @@ def main():
             enter()
         elif cmd == "kill":
             _kill()
+        elif cmd == "restart":
+            restart()
         elif cmd == "debug":
             debug()
         else:
-            _log(f"unknown command: {cmd!r} (use ensure|enter|kill|debug)")
+            _log(f"unknown command: {cmd!r} (use ensure|enter|kill|restart|debug)")
             return 2
     except Exception as e:
         _log(f"ERROR ({cmd}): {e!r}")

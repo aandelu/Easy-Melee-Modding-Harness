@@ -626,7 +626,9 @@ class Harness:
 
     def enter_online(self, peer=None, max_attempts: int = 12,
                      attempt_window_s: float = 9.0,
-                     confirm_samples: int = 21) -> bool:
+                     confirm_samples: int = 21,
+                     restart_peer_after=None,
+                     restart_recovery_s: float = 40.0) -> bool:
         """Drive this Mac's F4+Enter in lockstep with the Windows peer's
         F1+Enter and retry until the local scene reads SCENE_ONLINE_IN_GAME
         (0x0208).
@@ -646,8 +648,32 @@ class Harness:
         that would race the task's launch and could start two Slippi instances.
         On a cold peer the first attempts no-op while it boots; the retry window
         (default ~12 attempts) comfortably covers it.
+
+        Auto-recovery: if `peer` is given and we still aren't online after
+        `restart_peer_after` attempts (default max_attempts // 2), force-restart
+        the peer's Slippi once (peer.restart()) and wait `restart_recovery_s` for
+        it to come back before resuming -- recovers a wedged/crashed peer whose
+        F1/Enter is going nowhere. Pass restart_peer_after=0 to disable.
         """
+        if peer is not None and restart_peer_after is None:
+            restart_peer_after = max(1, max_attempts // 2)
+        peer_restarted = False
+
         for attempt in range(1, max_attempts + 1):
+            # Auto-recovery: a wedged peer (Slippi crashed / hotkeys dead) keeps
+            # us out of 0x0208 forever; restart its Slippi once and let it boot.
+            if (peer is not None and not peer_restarted and restart_peer_after
+                    and attempt == restart_peer_after + 1):
+                _log(f"enter_online: not online after {restart_peer_after} "
+                     f"attempts -- restarting the peer's Slippi (recovery), "
+                     f"waiting {restart_recovery_s:.0f}s for it to come back")
+                try:
+                    peer.restart()
+                except Exception as e:
+                    _log(f"enter_online: peer.restart failed: {e}")
+                peer_restarted = True
+                time.sleep(restart_recovery_s)
+
             if peer is not None:
                 # Fire the Windows side first so it is already searching when
                 # our Enter lands. peer.enter_online() does F1 -> +3s -> Enter.

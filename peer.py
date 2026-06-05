@@ -28,9 +28,10 @@ PEER_SSH_HOST = "winbox"
 
 # Interactive Scheduled Task names registered on the Windows box (no spaces --
 # they travel as bare tokens in the remote ssh command). See SETUP_WINDOWS.md.
-TASK_ENSURE = "MeleePeer_Ensure"   # launch Slippi Dolphin if not already running
-TASK_ENTER = "MeleePeer_Enter"     # ensure running, focus, F1 (load slot 1), Enter
-TASK_KILL = "MeleePeer_Kill"       # kill Slippi Dolphin
+TASK_ENSURE = "MeleePeer_Ensure"     # launch Slippi Dolphin if not already running
+TASK_ENTER = "MeleePeer_Enter"       # ensure running, focus, F1 (load slot 1), Enter
+TASK_KILL = "MeleePeer_Kill"         # kill Slippi Dolphin
+TASK_RESTART = "MeleePeer_Restart"   # force-kill + relaunch Slippi (recover a wedge)
 
 SSH_TIMEOUT_S = 15.0
 
@@ -91,8 +92,17 @@ class Peer:
         self._run_task(TASK_ENTER)
 
     def kill(self):
-        """Kill Slippi Dolphin on the peer (recover a wedged session)."""
+        """Kill Slippi Dolphin on the peer."""
         self._run_task(TASK_KILL)
+
+    def restart(self):
+        """Force-close and relaunch Slippi Dolphin on the peer to recover a
+        wedged/crashed session (kill -> wait until dead -> relaunch -> wait for
+        the window). Does NOT re-enter online -- follow with enter_online() to
+        reconnect. Fire-and-forget: the task runs ~15-45s on Windows, so give it
+        time before the next enter_online() (Harness.enter_online's auto-recovery
+        path handles that wait for you)."""
+        self._run_task(TASK_RESTART)
 
 
 def connect(host: str = PEER_SSH_HOST):
@@ -118,6 +128,9 @@ if __name__ == "__main__":
         p.enter_online()
     elif cmd == "kill":
         p.kill()
+    elif cmd == "restart":
+        p.restart()
     else:
-        print(f"usage: {sys.argv[0]} [ping|ensure|enter|kill]", file=sys.stderr)
+        print(f"usage: {sys.argv[0]} [ping|ensure|enter|kill|restart]",
+              file=sys.stderr)
         sys.exit(2)

@@ -111,7 +111,7 @@ Host winbox
 Test from the Mac: `ssh winbox echo ok` → prints `ok` with no prompt. Then
 `python3 -c "import peer; print(peer.Peer().ping())"` → `True`.
 
-## 4. Register the three interactive Scheduled Tasks
+## 4. Register the four interactive Scheduled Tasks
 
 Run on the Windows box (normal console; `/it` = interactive token, `/rl LIMITED`
 keeps it in the user session). Adjust the python path / script path.
@@ -120,13 +120,19 @@ keeps it in the user session). Adjust the python path / script path.
 set PEER=C:\melee\peer\melee_peer.py
 set PY=pythonw
 
-schtasks /create /tn MeleePeer_Ensure /sc ONCE /st 00:00 /it /rl LIMITED ^
+schtasks /create /tn MeleePeer_Ensure  /sc ONCE /st 00:00 /it /rl LIMITED ^
   /tr "%PY% \"%PEER%\" ensure" /f
-schtasks /create /tn MeleePeer_Enter  /sc ONCE /st 00:00 /it /rl LIMITED ^
+schtasks /create /tn MeleePeer_Enter   /sc ONCE /st 00:00 /it /rl LIMITED ^
   /tr "%PY% \"%PEER%\" enter" /f
-schtasks /create /tn MeleePeer_Kill   /sc ONCE /st 00:00 /it /rl LIMITED ^
+schtasks /create /tn MeleePeer_Kill    /sc ONCE /st 00:00 /it /rl LIMITED ^
   /tr "%PY% \"%PEER%\" kill" /f
+schtasks /create /tn MeleePeer_Restart /sc ONCE /st 00:00 /it /rl LIMITED ^
+  /tr "%PY% \"%PEER%\" restart" /f
 ```
+
+(`MeleePeer_Restart` force-closes and relaunches Slippi — the recovery path the
+Mac uses, manually via `peer.Peer().restart()` or automatically inside
+`Harness.enter_online` when a wedged peer keeps it out of an online match.)
 
 (The `/sc ONCE /st 00:00` schedule never auto-fires; we only ever trigger these
 with `schtasks /run`. Use `pythonw` so there's no console window — output goes to
