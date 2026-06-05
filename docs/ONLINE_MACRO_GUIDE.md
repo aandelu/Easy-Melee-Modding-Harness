@@ -267,10 +267,24 @@ stat -f '%i %N' "/Users/andrewashman/Library/Application Support/Slippi Launcher
                 "/Users/andrewashman/Library/Application Support/Slippi Launcher/netplay/Slippi Dolphin.app/Contents/MacOS/Dolphin"
 # 2. keystone import
 DYLD_LIBRARY_PATH=/opt/homebrew/lib python3 -c "import keystone,capstone;print('ok')"
-# 3. ask the user: is slot 4 baked with meta-flush, and is the other machine in a match?
-# 4. read-only online bring-up:
+# 3. confirm slot 4 is baked with meta-flush.
+#    The other machine (Windows peer) NO LONGER needs to be driven by hand:
+#    Harness.enter_online(peer=Peer()) launches Melee + F1 + Enter on it over SSH.
+#    One-time Windows setup: peer/SETUP_WINDOWS.md. End-to-end smoke test:
+DYLD_LIBRARY_PATH=/opt/homebrew/lib python3 verify_peer.py
+# 4. read-only online bring-up (auto-drives the peer if reachable, else manual):
 DYLD_LIBRARY_PATH=/opt/homebrew/lib python3 online_step1_bringup.py
 ```
+
+> **Autonomous peer (no walking to the Windows box).** The Mac side always
+> automated its own F4/Enter; the Windows peer's launch + F1 (load slot-1
+> direct-connect savestate) + Enter is now triggered remotely by `peer.Peer`
+> over SSH (it `schtasks /run`s a pre-registered *interactive* Scheduled Task —
+> SSH-spawned processes can't deliver keystrokes to the game, Session 0). The
+> harness self-confirms via its own scene reaching `0x0208`, so the trigger is
+> fire-and-forget; **you remain the desync verifier** (glance at the Windows
+> screen at the ARM marker). If the peer is unreachable, `enter_online` falls
+> back to the legacy manual flow. Setup + troubleshooting: `peer/SETUP_WINDOWS.md`.
 
 ---
 

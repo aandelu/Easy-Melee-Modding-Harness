@@ -98,13 +98,14 @@ def main():
     pid = h._proc.pid
     print(f"[online] pid {pid}; CPU live", flush=True)
 
-    print("[online] entering online: F4, +3s, Enter, +15s ...", flush=True)
-    send_key(pid, VK_F4, "F4")
-    time.sleep(3.0)
-    send_key(pid, VK_RETURN, "Enter")
-    time.sleep(15.0)
-
-    if not confirm_online(h, pid):
+    # enter_online drives the Mac's F4/Enter AND the Windows peer's F1/Enter
+    # (over SSH), retrying both sides until scene == 0x0208. connect() returns
+    # None if the peer is unreachable -> legacy manual flow. See peer/SETUP_WINDOWS.md.
+    from peer import connect as connect_peer
+    peer = connect_peer()
+    print("[online] entering online (Mac F4/Enter + peer F1/Enter, retry to "
+          "0x0208) ...", flush=True)
+    if not h.enter_online(peer=peer):
         print("\n[online] COULD NOT CONFIRM online in-game. Leaving Dolphin "
               "running; tell me if your queue dropped and I'll retry.", flush=True)
         return 1

@@ -86,12 +86,19 @@ def main():
           f"({'BRANCH (meta-flush installed)' if is_branch else 'NOT a branch'}; "
           f"vanilla would be 0x{META_FLUSH_ORIG:08X})", flush=True)
 
-    # --- get online ----------------------------------------------------------
-    print("[step1] entering online: F4, wait 3s, Enter, wait 15s ...", flush=True)
-    send_key_to_dolphin(pid, VK_F4, "F4")
-    time.sleep(3.0)
-    send_key_to_dolphin(pid, VK_RETURN, "Enter")
-    time.sleep(15.0)
+    # --- get online (auto-drives the Windows peer if reachable) --------------
+    # Harness.enter_online does the Mac's F4/Enter AND triggers the Windows
+    # peer's F1/Enter over SSH, retrying both sides until scene == 0x0208.
+    # peer.connect() returns None if the Windows box is unreachable, in which
+    # case enter_online falls back to the legacy manual flow (drive Windows by
+    # hand). See peer/SETUP_WINDOWS.md.
+    from peer import connect as connect_peer
+    peer = connect_peer()
+    print("[step1] entering online (Mac F4/Enter + peer F1/Enter, retry to "
+          "0x0208) ...", flush=True)
+    if not h.enter_online(peer=peer):
+        print("[step1] WARNING: could not confirm online in-game; continuing "
+              "read-only observation anyway", flush=True)
 
     # --- observe scene + frame counters --------------------------------------
     print("\n[step1] === scene-id candidates (looking for 0x208 encoding) ===",

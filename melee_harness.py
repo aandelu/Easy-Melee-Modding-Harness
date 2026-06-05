@@ -23,6 +23,7 @@ but Slippi's executable is "Slippi Dolphin". We launch Dolphin ourselves via a
 hardlink named "Dolphin" next to the real executable so macOS reports
 p_comm == "Dolphin".
 """
+import collections
 import configparser
 import contextlib
 import dataclasses
@@ -63,6 +64,8 @@ def _deadline(seconds, what):
 
 _F1_VKEY = 122          # macOS virtual key code for F1
 _F2_VKEY = 120          # macOS virtual key code for F2
+_F4_VKEY = 118          # macOS virtual key code for F4 (load slot-4 = online entry)
+_RETURN_VKEY = 36       # macOS virtual key code for Return/Enter (search/connect)
 _SHIFT_L_VKEY = 56      # macOS virtual key code for left shift
 
 
@@ -179,6 +182,18 @@ OFF_BUTTONS = 0x065C                # word, in Player Data (processed buttons)
 # measures deltas from a fresh read.
 FRAME_TIMER = 0x80479D60
 POWERON_COUNT = 0x804D7420
+
+# Scene controller (Global_Addresses.csv). getMinorMajor = minor_major(word).
+SCENE_WORD = 0x80479D30
+SCENE_ONLINE_IN_GAME = 0x0208       # online netplay, in a match (the entry target)
+SCENE_ONLINE_CSS = 0x0008           # online connected, character-select (not started)
+SCENE_OFFLINE_VS = 0x0202           # offline VS in-game (the "blind-Enter drift" trap)
+
+
+def minor_major(word: int) -> int:
+    """Decode the scene controller word at SCENE_WORD into Slippi's
+    getMinorMajor value (e.g. 0x0208 = online in-game)."""
+    return ((word << 8) | (word >> 24)) & 0xFFFF
 
 # Melee's processed controller digital data (Global_Addresses.csv 0x804C1FAC):
 # controllers 2-4 are at +0x44 multiples. Bit layout per the sheet:
@@ -582,6 +597,80 @@ class Harness:
                     return True
         raise TimeoutError(f"load_savestate slot {slot}: P1 entity never "
                            f"became valid after {attempt} attempts")
+
+    # --- online netplay entry ----------------------------------------------
+    def robust_scene(self, samples: int = 21, gap: float = 0.01):
+        """Majority-vote the scene id to defeat torn reads during rollback.
+        Returns (top_value, count, samples, Counter). Lifted from the
+        copy-pasted helper in the online_*.py scripts."""
+        vals = []
+        for _ in range(samples):
+            try:
+                vals.append(minor_major(self.read_word(SCENE_WORD)))
+            except Exception:
+                vals.append(-1)
+            time.sleep(gap)
+        c = collections.Counter(vals)
+        top, n = c.most_common(1)[0]
+        return top, n, samples, c
+
+    def send_online_key(self, vkey: int):
+        """Focus Dolphin and synthesize a single keypress. Online entry uses
+        F4 (_F4_VKEY = load slot-4 direct-connect savestate) then Return
+        (_RETURN_VKEY = search/connect)."""
+        if self._proc is None:
+            raise RuntimeError("Dolphin not launched")
+        _focus_pid(self._proc.pid)
+        time.sleep(0.3)
+        _send_key(vkey)
+
+    def enter_online(self, peer=None, max_attempts: int = 12,
+                     attempt_window_s: float = 9.0,
+                     confirm_samples: int = 21) -> bool:
+        """Drive this Mac's F4+Enter in lockstep with the Windows peer's
+        F1+Enter and retry until the local scene reads SCENE_ONLINE_IN_GAME
+        (0x0208).
+
+        `peer` is a peer.Peer (or None for the legacy single-machine flow where
+        the user drives the Windows box by hand). Duck-typed: peer just needs an
+        enter_online() method -- no import of the peer module here.
+
+        Per docs/WAVEDASH_ONLINE_RESULTS.md, re-fire BOTH sides each attempt
+        (reloading the direct-connect savestate fresh); never blind-Enter at the
+        CSS -- it drifts into offline VS (0x0202). Reaching 0x0208 locally means
+        a netplay match is established, which (for the MVP) is sufficient
+        confirmation that the peer connected -- no peer-side read needed.
+
+        The peer's `enter` task is self-sufficient (it launches Slippi + waits
+        for the window before its own F1/Enter), so we don't pre-launch here --
+        that would race the task's launch and could start two Slippi instances.
+        On a cold peer the first attempts no-op while it boots; the retry window
+        (default ~12 attempts) comfortably covers it.
+        """
+        for attempt in range(1, max_attempts + 1):
+            if peer is not None:
+                # Fire the Windows side first so it is already searching when
+                # our Enter lands. peer.enter_online() does F1 -> +3s -> Enter.
+                try:
+                    peer.enter_online()
+                except Exception as e:
+                    _log(f"enter_online: peer.enter_online failed "
+                         f"(attempt {attempt}): {e}")
+            # Mac side: F4 (load slot-4 direct-connect) -> +3s -> Enter (connect).
+            self.send_online_key(_F4_VKEY)
+            time.sleep(3.0)
+            self.send_online_key(_RETURN_VKEY)
+            time.sleep(attempt_window_s)
+
+            top, n, total, dist = self.robust_scene(samples=confirm_samples)
+            _log(f"enter_online attempt {attempt}/{max_attempts}: scene majority "
+                 f"0x{top:04X} ({n}/{total}) dist={dict(dist)}")
+            if top == SCENE_ONLINE_IN_GAME and n >= total * 0.6:
+                _log("enter_online: confirmed online in-game (0x0208)")
+                return True
+        _log(f"enter_online: could NOT confirm online in-game after "
+             f"{max_attempts} attempts")
+        return False
 
     def save_savestate(self, slot: int = 1):
         """Trigger 'Emulation > Save State > Slot <N>' via AppleScript menu
