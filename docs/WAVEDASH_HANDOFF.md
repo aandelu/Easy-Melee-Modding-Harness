@@ -19,8 +19,25 @@ character** (jumpsquat length read per-character at runtime).
   (installs on slot 2, hand controls to the user; WASD-friendly). Validated on Fox
   (jumpsquat 3) and Marth (jumpsquat 4): correct direction (incl. switching mid-jumpsquat),
   repeat, and quick-tap (release-up) all work.
-- **ONLINE: NOT STARTED.** This is your job. The offline cave logic is the reference;
-  port it producer-side and add delay-comp. See "The online port" below.
+- **ONLINE: SHIPPED (2026-06-04).** Gecko `online_wavedash.gecko.txt` (regen
+  `make_wavedash_gecko.py`). Validated online vs live peer (delay=1, Fox): NO desync,
+  frame-perfect (0 air frames). **Read [`docs/WAVEDASH_ONLINE_RESULTS.md`](WAVEDASH_ONLINE_RESULTS.md)**
+  for the full online build/findings. Key deltas from the plan below:
+    * **TWO producer hooks**, not one: digital L/Y at `0x8034E2AC`, stick at `0x8034E680`
+      (digital can't go via `0x8034E680` — downstream of analog→digital). Each re-resolves
+      the local player.
+    * **Frame-perfect airdodge = `asfc == jumpsquat − 1 − delay`** (clamped ≥1). Found by
+      an INSTRUMENTED in-cave sweep (perfect-vs-floaty counters + a per-frame state ring) —
+      the lossy Python observer was WRONG. The user's frame-eye caught it.
+    * **Delay floor:** frame-perfect needs `jumpsquat ≥ delay+2`. Fox is frame-perfect at
+      delay 1, ~1 frame late at delay 2 (can't inject the airdodge before jumpsquat starts);
+      Marth+ stay perfect at delay 2.
+    * The up-latch ports fine online (rollback-safe in practice); the predictive buffer-jump
+      was NOT needed — gating Y on grounded-actionable (released off-ground) gives natural
+      repeat. Self-drive = sim-up in grounded states only (every-frame up double-jumps).
+    * **PENDING:** user delay-2 real-input test; the `0x8034E2AC` real-stick up-check is the
+      one piece only their controller can confirm.
+  The original plan below is kept for historical context.
 
 ## The validated mechanic (don't re-derive — measured in `offline_wavedash_probe.py`)
 - **Stick bytes** (signed, at the pad hook; full ≈ ±0x70, scale = byte/0x70, radial-clamped):
