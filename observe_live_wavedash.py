@@ -36,10 +36,15 @@ CAVE_B, CAVE_A = 0x803FA800, 0x803FA600
 WD_PEND = 0x803FA470
 OFF_STATE = 0x10
 OFF_STICKY = 0x624        # Analog Stick Data Y (float)
+OFF_LCANCEL = 0x25FF      # LCancelStatus (u8: 0 none, 1 success, 2 fail)
 
 S_NAMES = {0x0E: "Wait", 0x0F: "WalkSlow", 0x14: "Dash", 0x15: "Run", 0x18: "KneeBend",
            0x19: "JumpF", 0x1A: "JumpB", 0x1B: "JumpAerialF", 0x1D: "Fall",
            0x20: "FallAerial", 0x2A: "Landing", 0x2B: "LandingFallSpecial(WD)",
+           0x41: "AttackAirN", 0x42: "AttackAirF", 0x43: "AttackAirB",
+           0x44: "AttackAirHi", 0x45: "AttackAirLw",
+           0x46: "LandingAirN", 0x47: "LandingAirF", 0x48: "LandingAirB",
+           0x49: "LandingAirHi", 0x4A: "LandingAirLw",
            0xEC: "EscapeAir"}
 
 
@@ -171,6 +176,8 @@ def main():
 
     prev = None
     jumps = wds = airs = 0
+    lcancel_ok = lcancel_fail = 0
+    prev_lc = 0
     up_sticky_max = -9.0
     neutral_sticky_samples = []
     log = []
@@ -184,6 +191,13 @@ def main():
         st = rw(h, pd + OFF_STATE)
         sy = rf(h, pd + OFF_STICKY)
         wp = rb(h, WD_PEND)
+        lc = rb(h, pd + OFF_LCANCEL)        # LCancelStatus rising edge = a fresh landing
+        if lc is not None and lc != prev_lc:
+            if lc == 1:
+                lcancel_ok += 1
+            elif lc == 2:
+                lcancel_fail += 1
+            prev_lc = lc
         if st is None:
             time.sleep(0.02); continue
         st &= 0xFFFF
@@ -199,6 +213,8 @@ def main():
                 wds += 1
             elif st in (0x19, 0x1B, 0x20, 0xEC):
                 airs += 1
+            elif 0x41 <= st <= 0x45:        # fresh aerial -> re-arm L-cancel edge detect
+                prev_lc = 0
             if len(log) < 80:
                 log.append((round(time.time() - t0, 2), sn(st),
                             f"{sy:+.2f}" if sy is not None else "?", wp))
@@ -211,6 +227,8 @@ def main():
     print("\n[obs] === SUMMARY ===", flush=True)
     print(f"[obs] KneeBend(jumps)={jumps}  LandingFallSpecial(wavedashes)={wds}  air-states={airs}",
           flush=True)
+    print(f"[obs] L-cancel: success={lcancel_ok}  fail={lcancel_fail}  "
+          f"(LCancelStatus +0x25FF rising edges)", flush=True)
     print(f"[obs] max stickY while 'up' (>=0.5625) = {up_sticky_max:+.2f}", flush=True)
     if neutral_sticky_samples:
         import statistics
@@ -223,6 +241,13 @@ def main():
         print("[obs] [ISSUE] jumps but no wavedash -> airdodge not firing (timing/latch).", flush=True)
     else:
         print("[obs] [ISSUE] no jumps -> up-trigger not firing (stickY read/threshold).", flush=True)
+    if lcancel_ok > 0:
+        print("[obs] [GOOD] L-cancels firing (LCancelStatus==1 observed).", flush=True)
+    elif lcancel_fail > 0:
+        print("[obs] [ISSUE] aerials landed but L-cancel FAILED (status==2).", flush=True)
+    else:
+        print("[obs] [info] no aerial L-cancels sampled -- do some aerials onto the "
+              "ground to test it.", flush=True)
     print("[obs] DONE. Dolphin left running.", flush=True)
     dme.un_hook()
     return 0

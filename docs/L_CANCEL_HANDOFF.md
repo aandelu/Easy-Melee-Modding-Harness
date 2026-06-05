@@ -27,6 +27,16 @@ the producer-side online injection pipeline + shipped the v2 L-cancel gecko.)
 - **Open/next:** none blocking. Air-ending-aerial spill is solved by construction
   (couldn't be exercised by the self-drive, which always lands its nairs) — confirm
   in real free play if desired.
+- **Coexistence with the wavedash (2026-06-05):** the analog-L hook `0x8034E680` is
+  the **same instruction the up-bound wavedash's stick code hooks**, so the two
+  cannot run as separate gecko codes — the second branch installed clobbers the
+  first. To run BOTH, the L-cancel pulse is **folded into the wavedash stick cave**
+  (`make_wavedash_gecko.py`, `INCLUDE_LCANCEL=True`): one `0x8034E680` cave does the
+  wavedash stick angle in KneeBend (bytes 2/3) AND this analog-L pulse in aerials
+  `0x41..0x45` (byte 6) — disjoint, no conflict. If you ship the wavedash, do **not**
+  also enable the standalone `C234E680` here. Standalone `online_auto_lcancel.gecko.txt`
+  stays for L-cancel-only setups (when the wavedash isn't installed). Validated live
+  (one match): wavedashes + L-cancel 19/0 both firing.
 
 ## DO NOT repeat these (already settled — see the docs)
 - The producer-side hook is `0x8034E2AC`; `0x803775B8` is consumer-side and

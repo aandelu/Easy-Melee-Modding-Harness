@@ -149,3 +149,16 @@ ODB resolution, the float-decode, the runtime delay read, and the C2/RAW packagi
 - Tap-jump does NOT auto-repeat (holding up = one jump); the repeat feature is the macro injecting Y each cycle.
 - `kill_stale` (`pkill -9 -x Dolphin`) only kills the hardlink-named "Dolphin"; a user's own "Slippi Dolphin"
   survives and can confuse which window has the macro — tell the user to play the freshly-launched window.
+
+## Coexistence with the online L-cancel (2026-06-05) — they SHARE hook 0x8034E680
+
+The shipped online auto-L-cancel (`online_auto_lcancel.gecko.txt`, `C234E680`) hooks the **same** producer-side
+instruction `0x8034E680` as the wavedash **stick** code (both displace `lbz r0,7(r3)` = `0x88030007`). Only one
+branch can live at an address, so enabling both as separate codes kills the L-cancel (the wavedash wins).
+**Fix shipped:** the L-cancel's analog-L pulse is now **folded into the wavedash stick cave** (`ASM_A` in
+`make_wavedash_gecko.py`, gated by `INCLUDE_LCANCEL=True`). The single `0x8034E680` cave now does both — the
+wavedash stick angle in KneeBend (writes bytes 2/3) **and** the L-cancel pulse in aerials `0x41..0x45` (writes
+byte 6), disjoint states + disjoint bytes, so zero conflict. Stick cave grew 92→104 words (`063FA600 000001A0`,
+ends `0x803FA7A0` < `CAVE_B` `0x803FA800`). **Do NOT also enable the standalone `C234E680` L-cancel** — it would
+re-collide. Validated live (one match): 12 wavedashes + L-cancel success 19 / fail 0, both firing.
+`observe_live_wavedash.py` samples `LCancelStatus` (Player Data `+0x25FF`) to confirm.

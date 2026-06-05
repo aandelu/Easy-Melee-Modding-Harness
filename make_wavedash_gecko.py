@@ -53,6 +53,14 @@ HOOK_A, DISP_A, CAVE_A = 0x8034E680, 0x88030007, 0x803FA600   # stick angle
 GECKO_NAME = "Up-Bound Wavedash"
 OUT_FILE = "online_wavedash.gecko.txt"
 
+# Fold the netplay-safe online auto-L-cancel into the SAME 0x8034E680 stick hook.
+# The standalone version (make_online_analog_lcancel_gecko.py) hooks the IDENTICAL
+# instruction, so a second branch there would clobber this one and the L-cancel would
+# die. Folding it in is safe: it acts ONLY in aerials (0x41..0x45) writing byte 6(r4),
+# while the wavedash stick part acts ONLY in KneeBend (0x18) writing bytes 2/3(r4) --
+# disjoint states, disjoint bytes. Set False for a wavedash-only build.
+INCLUDE_LCANCEL = True
+
 # CAVE_B @ 0x8034E2AC : up-gate + latch + delay-comp target + jump/airdodge buttons
 ASM_B = """
     stwu 1, -0x30(1)
@@ -171,8 +179,29 @@ bdone:
     addi 1, 1, 0x30
 """
 
-# CAVE_A @ 0x8034E680 : airdodge stick angle (gated on latch + same target frame)
-ASM_A = """
+# Folded-in online L-cancel tail (analog-L pulse in aerials). When state != KneeBend
+# the stick gate falls through to a_lcancel instead of adone; r5 (Player Data), r7
+# (action state) and r4 (PADStatus) are all still live there. r8/r9 are saved in the
+# prologue and unused on the not-KneeBend path, so they're free scratch.
+_A_KNEE_MISS = "a_lcancel" if INCLUDE_LCANCEL else "adone"
+_A_LCANCEL_TAIL = ("""    b    adone               # KneeBend path done -> never enter L-cancel
+a_lcancel:                   # aerials only (0x41..0x45); disjoint from KneeBend
+    cmpwi 7, 0x41
+    blt  adone
+    cmpwi 7, 0x45
+    bgt  adone
+    lis  9, 0x8047           # global frame counter 0x80479D60 (ticks through hitlag;
+    ori  9, 9, 0x9D60        #   NOT the power-on counter 0x804D7420)
+    lwz  9, 0(9)
+    andi. 9, 9, 1
+    bne  adone               # odd frame -> leave the real trigger value
+    li   8, 0x80             # light analog L (< 0xAA -> no digital bit, no airdodge)
+    stb  8, 6(4)             # analog-L byte in the local PADStatus (post-calibration)
+""") if INCLUDE_LCANCEL else ""
+
+# CAVE_A @ 0x8034E680 : airdodge stick angle (gated on latch + same target frame),
+# plus the folded-in online L-cancel (see INCLUDE_LCANCEL / _A_LCANCEL_TAIL).
+ASM_A = f"""
     stwu 1, -0x30(1)
     stw  5, 0x08(1)
     stw  6, 0x0C(1)
@@ -209,7 +238,7 @@ ASM_A = """
     lwz  7, 0x10(5)
     rlwinm 7, 7, 0, 16, 31
     cmpwi 7, 0x18            # KneeBend only
-    bne  adone
+    bne  {_A_KNEE_MISS}
     lis  9, 0x803F          # airdodge stick if latch set OR up held now (match CAVE_B)
     ori  9, 9, 0xA470
     lbz  9, 0(9)             # WD_PEND set?
@@ -262,7 +291,7 @@ a_left:
 a_set:
     stb  8, 2(4)
     stb  7, 3(4)
-adone:
+{_A_LCANCEL_TAIL}adone:
     lwz  5, 0x08(1)
     lwz  6, 0x0C(1)
     lwz  7, 0x10(1)
@@ -275,6 +304,7 @@ adone:
 
 ORIS_L, ORIS_Y = 0x64000040, 0x64000800
 STB_X, STB_Y = 0x99040002, 0x98E40003     # stb r8,2(r4) / stb r7,3(r4)
+STB_L = 0x99040006                        # stb r8,6(r4)  (folded-in analog-L pulse)
 
 
 def assemble(asm):
@@ -320,9 +350,12 @@ def main():
             print(f"  0x{i.address:08X}: {i.bytes.hex().upper():<10} {i.mnemonic} {i.op_str}")
     assert ORIS_L in pay_b and ORIS_Y in pay_b, "cave B missing L/Y"
     assert STB_X in pay_a and STB_Y in pay_a, "cave A missing stick stores"
+    if INCLUDE_LCANCEL:
+        assert pay_a.count(STB_L) == 1, "cave A must have exactly one analog-L store (stb r8,6(r4))"
     assert pay_b[-2] == DISP_B and pay_a[-2] == DISP_A, "displaced not protected"
     assert CAVE_A + len(pay_a) * 4 <= CAVE_B, "cave A overruns cave B"
-    print("\n[ok] L/Y present, stick stores present, displaced protected, caves disjoint.")
+    _lc = " + analog-L fold" if INCLUDE_LCANCEL else ""
+    print(f"\n[ok] L/Y present, stick stores{_lc} present, displaced protected, caves disjoint.")
 
     # ---- write the gecko file (both forms) ----
     hdr = f"""# ============================================================================
