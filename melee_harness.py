@@ -634,54 +634,73 @@ class Harness:
         (0x0208).
 
         `peer` is a peer.Peer (or None for the legacy single-machine flow where
-        the user drives the Windows box by hand). Duck-typed: peer just needs an
-        enter_online() method -- no import of the peer module here.
+        the user drives the Windows box by hand). Duck-typed: peer needs
+        enter_online() (and, for recovery, restart()), each returning (ok,status)
+        or None -- no import of the peer module here.
 
         Per docs/WAVEDASH_ONLINE_RESULTS.md, re-fire BOTH sides each attempt
         (reloading the direct-connect savestate fresh); never blind-Enter at the
-        CSS -- it drifts into offline VS (0x0202). Reaching 0x0208 locally means
-        a netplay match is established, which (for the MVP) is sufficient
-        confirmation that the peer connected -- no peer-side read needed.
+        CSS -- it drifts into offline VS (0x0202). Two confirmation signals: the
+        peer's own status (ok = it focused + sent F1/Enter) and the Mac's scene
+        (0x0208 = actually in a match). peer ok but scene stuck => the fault is
+        savestate/timing/network, not the peer (logged as a diagnostic).
 
         The peer's `enter` task is self-sufficient (it launches Slippi + waits
         for the window before its own F1/Enter), so we don't pre-launch here --
         that would race the task's launch and could start two Slippi instances.
-        On a cold peer the first attempts no-op while it boots; the retry window
-        (default ~12 attempts) comfortably covers it.
+        On a cold peer the first confirmed enter blocks while it boots.
 
         Auto-recovery: if `peer` is given and we still aren't online after
-        `restart_peer_after` attempts (default max_attempts // 2), force-restart
-        the peer's Slippi once (peer.restart()) and wait `restart_recovery_s` for
-        it to come back before resuming -- recovers a wedged/crashed peer whose
-        F1/Enter is going nowhere. Pass restart_peer_after=0 to disable.
+        `restart_peer_after` attempts (default max_attempts // 2) AND the peer is
+        not reporting healthy, force-restart its Slippi once (peer.restart(),
+        which blocks until the window is back). If the restart can't be confirmed,
+        fall back to waiting `restart_recovery_s`. Pass restart_peer_after=0 to
+        disable. (A peer that reports healthy is never restarted -- that wouldn't
+        fix a savestate/network problem.)
         """
         if peer is not None and restart_peer_after is None:
             restart_peer_after = max(1, max_attempts // 2)
         peer_restarted = False
+        last_peer_ok = None   # peer's self-reported status from its last `enter`
 
         for attempt in range(1, max_attempts + 1):
             # Auto-recovery: a wedged peer (Slippi crashed / hotkeys dead) keeps
             # us out of 0x0208 forever; restart its Slippi once and let it boot.
+            # Only restart if the peer is NOT reporting healthy -- if it reports
+            # ok and we're still out, the fault is savestate/timing/network and a
+            # restart just wastes time.
             if (peer is not None and not peer_restarted and restart_peer_after
                     and attempt == restart_peer_after + 1):
-                _log(f"enter_online: not online after {restart_peer_after} "
-                     f"attempts -- restarting the peer's Slippi (recovery), "
-                     f"waiting {restart_recovery_s:.0f}s for it to come back")
-                try:
-                    peer.restart()
-                except Exception as e:
-                    _log(f"enter_online: peer.restart failed: {e}")
+                if last_peer_ok is True:
+                    _log("enter_online: peer reports healthy but we're not in a "
+                         "match -- likely savestate/timing/network, NOT a wedge; "
+                         "skipping the restart")
+                else:
+                    _log(f"enter_online: not online after {restart_peer_after} "
+                         f"attempts and peer is not healthy -- restarting its "
+                         f"Slippi (recovery)")
+                    restart_ok = None
+                    try:
+                        res = peer.restart()  # confirmed: blocks until back up
+                        restart_ok = res[0] if isinstance(res, tuple) else None
+                    except Exception as e:
+                        _log(f"enter_online: peer.restart failed: {e}")
+                    if restart_ok is None:
+                        # unconfirmed -> give it a fixed window to come back
+                        time.sleep(restart_recovery_s)
                 peer_restarted = True
-                time.sleep(restart_recovery_s)
 
             if peer is not None:
-                # Fire the Windows side first so it is already searching when
-                # our Enter lands. peer.enter_online() does F1 -> +3s -> Enter.
+                # Fire the Windows side first so it is already searching when our
+                # Enter lands. peer.enter_online() ensures running + F1 + Enter and
+                # (confirmed) returns (ok, status) once the peer reports its result.
                 try:
-                    peer.enter_online()
+                    res = peer.enter_online()
+                    last_peer_ok = res[0] if isinstance(res, tuple) else None
                 except Exception as e:
                     _log(f"enter_online: peer.enter_online failed "
                          f"(attempt {attempt}): {e}")
+                    last_peer_ok = None
             # Mac side: F4 (load slot-4 direct-connect) -> +3s -> Enter (connect).
             self.send_online_key(_F4_VKEY)
             time.sleep(3.0)
@@ -694,6 +713,15 @@ class Harness:
             if top == SCENE_ONLINE_IN_GAME and n >= total * 0.6:
                 _log("enter_online: confirmed online in-game (0x0208)")
                 return True
+            # Diagnostic split (handoff §8): which side is the problem?
+            if peer is not None and last_peer_ok is True:
+                _log("  peer plumbing OK (focused + F1/Enter sent) but no match "
+                     "yet -- savestate/timing/network, not the peer")
+            elif peer is not None and last_peer_ok is False:
+                _log("  peer reported a FAILURE (locked desktop / crashed Slippi "
+                     "/ keystroke rejected) -- see its peer_status.json")
+            elif peer is not None:
+                _log("  no fresh peer status -- peer slow or unreachable")
         _log(f"enter_online: could NOT confirm online in-game after "
              f"{max_attempts} attempts")
         return False

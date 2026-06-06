@@ -1,0 +1,5 @@
+# Runtime artifacts produced on the Windows peer box -- not source.
+melee_peer.log
+peer_status.json
+__pycache__/
+*.pyc

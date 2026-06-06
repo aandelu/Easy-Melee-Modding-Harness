@@ -27,6 +27,7 @@ with pythonw have no console, so the log file is the only output you'll see).
 """
 import ctypes
 import ctypes.wintypes as wt
+import json
 import os
 import subprocess
 import sys
@@ -37,6 +38,13 @@ import win_paths
 
 LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                         "melee_peer.log")
+# Machine-readable result of the LAST command, overwritten each run. The Mac
+# reads this (over SSH) to know whether a triggered command actually succeeded,
+# rather than inferring it from the game. Always carries an "epoch" so the Mac
+# can confirm it's reading a FRESH result (epoch >= the time it fired the task)
+# and not a stale one from a previous run.
+STATUS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "peer_status.json")
 
 
 def _log(msg):
@@ -46,7 +54,37 @@ def _log(msg):
             f.write(line + "\n")
     except Exception:
         pass
-    print(line, flush=True)
+    try:
+        print(line, flush=True)
+    except Exception:
+        # The console codec (often cp1252) can't always encode chars that show
+        # up in window titles. The log file already captured it -- never let a
+        # console-encoding error crash the run; emit a lossy version instead.
+        try:
+            enc = sys.stdout.encoding or "utf-8"
+            print(line.encode(enc, "replace").decode(enc), flush=True)
+        except Exception:
+            pass
+
+
+def _write_status(cmd, ok, error=None, detail=None):
+    """Overwrite peer_status.json with the outcome of this command run. Written
+    atomically (temp + replace) so the Mac never reads a half-written file."""
+    rec = {
+        "cmd": cmd,
+        "ok": bool(ok),
+        "error": error,
+        "detail": detail or {},
+        "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "epoch": int(time.time()),
+    }
+    try:
+        tmp = STATUS_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(rec, f)
+        os.replace(tmp, STATUS_PATH)
+    except Exception as e:
+        _log(f"WARNING: could not write status file: {e!r}")
 
 
 # --- Win32 plumbing ---------------------------------------------------------
@@ -72,16 +110,33 @@ class KEYBDINPUT(ctypes.Structure):
                 ("time", wt.DWORD), ("dwExtraInfo", ULONG_PTR)]
 
 
+class MOUSEINPUT(ctypes.Structure):
+    _fields_ = [("dx", wt.LONG), ("dy", wt.LONG), ("mouseData", wt.DWORD),
+                ("dwFlags", wt.DWORD), ("time", wt.DWORD),
+                ("dwExtraInfo", ULONG_PTR)]
+
+
+# The real Win32 INPUT union's largest member is MOUSEINPUT. We only ever send
+# keyboard events, but the union MUST include MOUSEINPUT so sizeof(INPUT) matches
+# what SendInput expects for cbSize (40 on x64, 28 on x86). Declaring only ki
+# yields 32 on x64, which SendInput rejects with ERROR_INVALID_PARAMETER (87).
 class _INPUTunion(ctypes.Union):
-    _fields_ = [("ki", KEYBDINPUT)]
+    _fields_ = [("ki", KEYBDINPUT), ("mi", MOUSEINPUT)]
 
 
 class INPUT(ctypes.Structure):
     _fields_ = [("type", wt.DWORD), ("u", _INPUTunion)]
 
 
-def _send_scancode(scan: int):
-    """Press and release a single key by scancode via SendInput."""
+user32.SendInput.argtypes = [wt.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
+user32.SendInput.restype = wt.UINT
+
+
+def _send_scancode(scan: int) -> bool:
+    """Press and release a single key by scancode via SendInput. Returns True
+    only if the OS accepted BOTH the down and up events (SendInput returned 1).
+    Note: this confirms the keystroke entered the input stream, NOT that Dolphin
+    consumed it -- the latter is only fully confirmable from game state."""
     extra = ctypes.c_ulong(0)
 
     def _evt(flags):
@@ -92,13 +147,16 @@ def _send_scancode(scan: int):
     n = ctypes.sizeof(INPUT)
     down = _evt(KEYEVENTF_SCANCODE)
     up = _evt(KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP)
-    if user32.SendInput(1, ctypes.byref(down), n) != 1:
+    ok_down = user32.SendInput(1, ctypes.byref(down), n) == 1
+    if not ok_down:
         _log(f"WARNING: SendInput(down 0x{scan:02X}) failed err="
              f"{ctypes.get_last_error()}")
     time.sleep(0.05)
-    if user32.SendInput(1, ctypes.byref(up), n) != 1:
+    ok_up = user32.SendInput(1, ctypes.byref(up), n) == 1
+    if not ok_up:
         _log(f"WARNING: SendInput(up 0x{scan:02X}) failed err="
              f"{ctypes.get_last_error()}")
+    return ok_down and ok_up
 
 
 # --- window discovery + focus ----------------------------------------------
@@ -228,18 +286,25 @@ def restart():
 
 
 def enter():
-    """ensure running -> focus -> F1 (load slot 1) -> wait -> Enter (connect)."""
+    """ensure running -> focus -> F1 (load slot 1) -> wait -> Enter (connect).
+    Returns a detail dict; raises if either keystroke was rejected by the OS so
+    the exit code / status file reflect a real failure (not a silent warning)."""
     hwnd = ensure_running(wait_ready=True) or _find_dolphin_hwnd()
     if hwnd is None:
         raise RuntimeError("no Dolphin window to focus")
-    _focus_hwnd(hwnd)
+    focused = _focus_hwnd(hwnd)
     time.sleep(0.3)
-    _send_scancode(SC_F1)
+    f1_ok = _send_scancode(SC_F1)
     _log("sent F1 (load slot-1 direct-connect savestate)")
     time.sleep(3.0)
     _focus_hwnd(hwnd)  # re-assert focus in case the load shifted it
-    _send_scancode(SC_RETURN)
+    enter_ok = _send_scancode(SC_RETURN)
     _log("sent Enter (search/connect)")
+    detail = {"focused": bool(focused), "f1_sent": f1_ok,
+              "enter_sent": enter_ok}
+    if not (f1_ok and enter_ok):
+        raise RuntimeError(f"keystroke send rejected by OS: {detail}")
+    return detail
 
 
 def debug():
@@ -259,11 +324,12 @@ def debug():
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "enter"
     _log(f"=== melee_peer {cmd} ===")
+    detail = None
     try:
         if cmd == "ensure":
             ensure_running(wait_ready=True)
         elif cmd == "enter":
-            enter()
+            detail = enter()
         elif cmd == "kill":
             _kill()
         elif cmd == "restart":
@@ -272,10 +338,13 @@ def main():
             debug()
         else:
             _log(f"unknown command: {cmd!r} (use ensure|enter|kill|restart|debug)")
+            _write_status(cmd, ok=False, error="unknown command")
             return 2
     except Exception as e:
         _log(f"ERROR ({cmd}): {e!r}")
+        _write_status(cmd, ok=False, error=repr(e), detail=detail)
         return 1
+    _write_status(cmd, ok=True, detail=detail)
     return 0
 
 

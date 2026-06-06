@@ -44,14 +44,26 @@ def main():
               "peer/SETUP_WINDOWS.md step 3 (OpenSSH + key auth + PEER_SSH_HOST)")
         return 1   # nothing downstream can work without the peer
 
-    # --- 2. remote launch trigger -------------------------------------------
+    # --- 2. remote trigger + status return channel --------------------------
     try:
-        p.kill()
-        time.sleep(2.0)
+        p.kill()  # fast command -> writes a fresh peer_status.json shortly after
+        st = None
+        for _ in range(8):                 # poll ~8s for the scheduler to run it
+            time.sleep(1.0)
+            st = p.read_status()
+            if isinstance(st, dict) and st.get("cmd") == "kill":
+                break
+        if isinstance(st, dict) and "epoch" in st:
+            print(f"[PASS] peer status channel works "
+                  f"(last: cmd={st.get('cmd')} ok={st.get('ok')})")
+        else:
+            print(f"[FAIL] peer_status.json unreadable (got {st!r}) -- check "
+                  f"PEER_STATUS_PATH in peer.py")
+            fails += 1
         p.ensure_running()
         print("[PASS] remote launch trigger (kill + ensure_running) accepted")
     except Exception as e:
-        print(f"[FAIL] remote launch trigger: {e}")
+        print(f"[FAIL] remote trigger/status: {e}")
         fails += 1
 
     # --- 3. headline: full two-machine online entry from the Mac ------------
@@ -78,6 +90,9 @@ def main():
               "log above and C:\\...\\peer\\melee_peer.log on Windows")
         fails += 1
 
+    fin = p.read_status()
+    if fin:
+        print(f"[verify_peer] final peer status: {fin}")
     print("[verify_peer] Dolphin left running (online session alive).")
     if fails:
         print(f"\n{fails} stage(s) FAILED.")

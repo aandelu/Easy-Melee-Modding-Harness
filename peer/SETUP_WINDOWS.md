@@ -7,6 +7,12 @@ interaction** — `Harness.enter_online(peer=Peer())` triggers Slippi launch + F
 You do this **once**. After that the Windows box just needs to be powered on,
 logged in, and unlocked; the Mac does the rest.
 
+> **Status: verified end-to-end (2026-06-06)** on a real two-machine setup — the
+> Mac launched Slippi and connected with zero physical interaction on the Windows
+> box. The committed `peer/` files include the bug-fixed `melee_peer.py` and the
+> verified `win_paths.py`; see `HANDOFF_WINDOWS_PEER.md` for the original
+> bring-up notes.
+
 ## Why it's built this way (read this first)
 
 Synthetic keystrokes (`SendInput`) reach Dolphin **only from the interactive
@@ -57,9 +63,18 @@ and which one matched `WINDOW_TITLE_SUBSTR`. Fix in `win_paths.py`:
   `Dolphin.exe`). Find it: `where /r "%APPDATA%\Slippi Launcher" *.exe`.
 - `PROCESS_NAME` — its image name in `tasklist` (`tasklist | findstr /i dolphin`).
 - `ISO_PATH` — the Melee 1.02 NTSC ISO.
-- `WINDOW_TITLE_SUBSTR` — a substring of Dolphin's window title from the dump
-  (default `"Dolphin"` usually works).
+- `WINDOW_TITLE_SUBSTR` — a substring of the game window's title from the dump.
+  **Do NOT assume `"Dolphin"`** — Slippi's game window is often titled e.g.
+  `Faster Melee - Slippi (3.6.2)`, which has no "Dolphin" in it (window discovery
+  silently returns `None` and `enter` can't focus). Pick a substring of the ACTUAL
+  title, and avoid `"Slippi"` alone (it also matches the separate `Slippi Launcher`
+  window). The committed `win_paths.py` uses `"Faster Melee"` — verify yours.
 - `USER_DIR` — leave `""` unless you launch Dolphin with a non-default `-u` dir.
+
+> The committed `win_paths.py` already holds a **verified-working** config for one
+> box (`esash`'s: `Slippi Dolphin.exe`, `"Faster Melee"`, the ISO under
+> `C:\Andrew generated\melee\…`). If you're on that box it should work as-is; on a
+> different box, re-probe and edit.
 
 ### Verify launch + keystrokes locally (NOT over SSH yet)
 
@@ -85,31 +100,40 @@ Start-Service sshd
 Set-Service -Name sshd -StartupType Automatic
 ```
 
-On the **Mac**, install your public key for passwordless login (so `BatchMode`
-SSH from `peer.py` is non-interactive):
+On the **Mac**, install a public key for passwordless login (so `BatchMode` SSH
+from `peer.py` is non-interactive). **Use a dedicated passphrase-free key** — a
+passphrase-protected key prompts interactively and breaks `BatchMode`:
 
 ```bash
-ssh-keygen -t ed25519        # if you don't already have a key
-# append ~/.ssh/id_ed25519.pub to the Windows user's authorized_keys, OR:
-ssh-copy-id USER@WINDOWS_IP  # if available
+ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_winbox    # dedicated, no passphrase
 ```
 
-For a **non-admin** Windows user the key goes in `C:\Users\USER\.ssh\authorized_keys`.
-(Admin users use `C:\ProgramData\ssh\administrators_authorized_keys` with tight
-ACLs — prefer a non-admin user to avoid that.)
+Then install `~/.ssh/id_winbox.pub` on Windows. **Where depends on the account:**
+- **Non-admin user** → `C:\Users\USER\.ssh\authorized_keys`.
+- **Administrator user** (common!) → Windows OpenSSH *ignores* the per-user file
+  and reads ONLY `C:\ProgramData\ssh\administrators_authorized_keys` (the
+  `Match Group administrators` block in `sshd_config`). That file needs tight
+  ACLs — owner `SYSTEM` + `Administrators`, inheritance removed:
+  ```powershell
+  $f="C:\ProgramData\ssh\administrators_authorized_keys"
+  icacls $f /inheritance:r /grant "SYSTEM:F" "BUILTIN\Administrators:F"
+  ```
 
-Add a convenient host alias in the Mac's `~/.ssh/config` and set it as
-`PEER_SSH_HOST` in `peer.py`:
+Add a host alias on the Mac (`~/.ssh/config`) and set its name as `PEER_SSH_HOST`
+in `peer.py` (default is already `winbox`). `IdentitiesOnly yes` forces this key
+(skips any others that would prompt):
 
 ```
 Host winbox
-    HostName 192.168.1.NN      # the Windows LAN IP (give it a static/DHCP-reserved IP)
-    User USER
-    IdentityFile ~/.ssh/id_ed25519
+    HostName 192.168.68.87     # the Windows LAN IP -- RESERVE it in your router!
+    User esash                 # a DHCP lease will eventually go stale otherwise
+    IdentityFile ~/.ssh/id_winbox
+    IdentitiesOnly yes
 ```
 
-Test from the Mac: `ssh winbox echo ok` → prints `ok` with no prompt. Then
-`python3 -c "import peer; print(peer.Peer().ping())"` → `True`.
+Test from the Mac: `ssh winbox echo ok` → prints `ok`, no prompt. Then
+`python3 -c "import peer; print(peer.Peer().ping())"` → `True`. (A
+`post-quantum key exchange` warning from newer OpenSSH is cosmetic — ignore it.)
 
 ## 4. Register the four interactive Scheduled Tasks
 
@@ -149,24 +173,48 @@ ssh winbox schtasks /run /tn MeleePeer_Enter
 Slippi should launch and F1+Enter should connect — driven entirely from the Mac.
 Tail `C:\melee\peer\melee_peer.log` to debug.
 
-## 5. Make it always-ready (zero-touch after a reboot)
+## 5. Keep the desktop awake + unlocked during a session
 
-- **Auto-login**: `netplwiz` → uncheck "Users must enter a user name and
-  password" → enter the password once. (Or set up per your security comfort.)
-- **Stay unlocked**: Settings ▸ Accounts ▸ Sign-in options → "If you've been
-  away, when should Windows require sign-in" = **Never**; Power & screen → screen
-  off / sleep = **Never**; disable the screensaver / lock policy. Keystrokes need
-  an unlocked interactive desktop.
-- Optional: a "MeleePeer is set up" sanity check after reboot — log in, then from
-  the Mac `python3 verify_peer.py`.
+`SendInput` is dropped by a **locked** secure-desktop (which happens on
+sleep→resume or a password screensaver). Two ways to handle it:
+
+- **Recommended — `caffeinate.py` (per-session, changes no settings):** at the
+  start of a testing session run `python peer\caffeinate.py` and leave the window
+  open. It holds an "app is busy, stay awake" request (the same mechanism video
+  players use) so the box won't sleep or screensaver-lock; closing the window or
+  Ctrl+C restores normal power behavior. It does **not** disable your login PIN.
+- **Or permanently:** Settings ▸ Accounts ▸ Sign-in options → require sign-in =
+  **Never**; Power & screen → sleep = **Never**; disable the screensaver lock.
+- **Auto-login** (optional, for true zero-touch from cold boot): `netplwiz` →
+  uncheck "Users must enter a user name and password". On a Microsoft-account /
+  Windows-Hello box the checkbox is hidden until you turn off Settings ▸ Accounts
+  ▸ Sign-in options ▸ "…only allow Windows Hello sign-in". Skipping this just
+  means you type your PIN once after a reboot.
+
+Sanity check after login: from the Mac, `python3 verify_peer.py`.
+
+### The status return channel (`peer_status.json`)
+
+Each `melee_peer.py` run writes its outcome to `peer_status.json` next to the
+script (atomic write): `{"cmd","ok","error","detail","time","epoch"}`. The Mac
+reads it back over SSH (`peer.Peer.read_status()`) so it knows whether a triggered
+command *actually* succeeded — `ok:false` on a locked desktop, crashed Slippi, or
+keystroke rejection. `Harness.enter_online` uses this as one of its two signals
+(the other is the Mac's own game scene). Set `PEER_STATUS_PATH` in `peer.py` to
+this file's absolute path on the box. `peer_status.json` and `melee_peer.log` are
+runtime artifacts (gitignored), not source.
 
 ## 6. Done — drive it from the Mac
 
+Each session: log in, run `python peer\caffeinate.py` on the box (leave it open),
+then from the Mac:
+
 ```bash
-python3 verify_peer.py     # [PASS]/[FAIL] end-to-end: SSH, remote launch, online match
+python3 verify_peer.py     # [PASS]/[FAIL] end-to-end: SSH, status channel, online match
 ```
 
-Or in any online dev script: `h.enter_online(peer=Peer())`.
+Or in any online dev script: `h.enter_online(peer=Peer())`. Recover a wedged peer
+anytime with `python3 peer.py restart` (or it auto-recovers inside `enter_online`).
 
 ## Firewall note
 

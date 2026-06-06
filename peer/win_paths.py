@@ -13,7 +13,7 @@ verified during setup -- see ../peer/SETUP_WINDOWS.md "Resolve the unknowns".
 # Slippi Launcher unpacks the netplay Dolphin under %APPDATA%\Slippi Launcher.
 # Confirm the real path (it may be "Slippi Dolphin.exe" or "Dolphin.exe").
 SLIPPI_EXE = (
-    r"C:\Users\YOU\AppData\Roaming\Slippi Launcher\netplay\Slippi Dolphin.exe"
+    r"C:\Users\esash\AppData\Roaming\Slippi Launcher\netplay\Slippi Dolphin.exe"
 )
 
 # Process image name as it appears in `tasklist` -- used to detect/kill Dolphin.
@@ -23,13 +23,15 @@ PROCESS_NAME = "Slippi Dolphin.exe"
 # The Melee 1.02 NTSC ISO and (optional) a -u user dir override. Leave USER_DIR
 # empty ("") to let Slippi use its default user dir (recommended -- that's where
 # the slot-1 direct-connect savestate and Hotkeys.ini live).
-ISO_PATH = r"C:\path\to\Super Smash Bros. Melee (v1.02 NTSC).iso"
+ISO_PATH = r"C:\Andrew generated\melee\Super Smash Bros. Melee (USA) (En,Ja) (v1.02).iso"
 USER_DIR = ""
 
 # Substring (case-insensitive) matched against visible top-level window titles
-# to locate Dolphin's window for focusing. Slippi's render/main window title
-# contains "Dolphin". Confirm with the EnumWindows dump in melee_peer.py --debug.
-WINDOW_TITLE_SUBSTR = "Dolphin"
+# to locate Dolphin's window for focusing. This Slippi build's game window is
+# titled "Faster Melee - Slippi (3.6.2)" -- NOT "Dolphin". We match "Faster
+# Melee" rather than "Slippi" on purpose: "Slippi" would also match the separate
+# "Slippi Launcher" window. Confirm with `python melee_peer.py debug`.
+WINDOW_TITLE_SUBSTR = "Faster Melee"
 
 # Cold-launch: seconds to wait for the Dolphin window to appear, plus a settle
 # delay after it appears before sending hotkeys (let it boot into Melee).
