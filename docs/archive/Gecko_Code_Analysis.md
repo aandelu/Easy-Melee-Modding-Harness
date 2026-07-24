@@ -1,3 +1,5 @@
+> **HISTORICAL (archived 2026-07-24).** Reference disassemblies, still useful — but NOTE: every comment citing scene address 0x80489D30 is a sign-extension error (lwz displacement 0x9D30 is NEGATIVE: −0x62D0). The correct address is 0x80479D30. See docs/REFERENCE.md.
+
 # SSBM Gecko Code Analysis
 
 This document contains disassembled PowerPC assembly and documentation for various Super Smash Bros. Melee Gecko codes, particularly focusing on mechanics useful for online-safe macros.

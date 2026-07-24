@@ -15,7 +15,7 @@ PLANES we can write to via dme (in pipeline order, earliest to latest):
   4. Per-player Analog Stick X/Y: PD+0x620, PD+0x624 (floats -1.0..1.0).
   5. Per-player Instant Buttons: PD+0x668 (just-pressed delta).
 
-Button bits (from Project_Addresses.md and existing gecko candidates):
+Button bits (see docs/REFERENCE.md and existing gecko candidates):
   Z = 0x0010, B = 0x0200, Y = 0x0800, A = 0x0100, X = 0x0400, Start = 0x1000,
   D-up = 0x0008, D-down = 0x0004, D-left = 0x0001, D-right = 0x0002.
 """

@@ -16,7 +16,7 @@ DYLD_LIBRARY_PATH=/opt/homebrew/lib python3 -c "import dolphin_memory_engine, ke
 stat -f '%i %N' "/Users/andrewashman/Library/Application Support/Slippi Launcher/netplay/Slippi Dolphin.app/Contents/MacOS/Slippi Dolphin" \
                 "/Users/andrewashman/Library/Application Support/Slippi Launcher/netplay/Slippi Dolphin.app/Contents/MacOS/Dolphin"   # inodes must match
 ```
-Also required (not script-checkable): **Accessibility** granted to the terminal/Python (for synthetic F2/F4/Enter), the **Melee ISO** at `melee_harness.ISO_PATH`, and savestate **slot 2** present (`StateSaves/GALE01.s02` = Marth P1 / Fox P2 in-game on a flat stage). First-time machine setup is in **`HARNESS.md` §9** and **`docs/ONLINE_MACRO_GUIDE.md` §2**.
+Also required (not script-checkable): **Accessibility** granted to the terminal/Python (for synthetic F2/F4/Enter), the **Melee ISO** at `melee_harness.ISO_PATH`, and savestate **slot 2** present (`StateSaves/GALE01.s02` = Marth P1 / Fox P2 in-game on a flat stage). First-time machine setup is in **`HARNESS.md` §9**; online-specific setup is in **`WORKFLOW.md`** (Iterate-online chapter).
 
 ## Setup (one-time; already done on this machine)
 - **Python deps:** `pip install dolphin-memory-engine keystone-engine capstone` (verified importable above).
@@ -44,10 +44,10 @@ Expected tail (~15s, exit 0):
 ```bash
 DYLD_LIBRARY_PATH=/opt/homebrew/lib python3 play_wavedash_offline.py   # installs wavedash macro, then play (W=up=wavedash)
 ```
-To programmatically drive + observe (the agent path for macro dev), do everything in **one process** (see any `offline_*.py` / `play_wavedash_monitor.py`): launch + hook + `seed_snapshot()` + `iw.write_instrs`/`patch_branch` to install a cave + read state each frame with `h.read_word` / `h.player_data_ptr(port)` while `h.wait_frames(1)` single-steps. **dme cannot re-attach from a fresh process** — to monitor a running session, build the monitor into the launching script.
+To programmatically drive + observe (the agent path for macro dev), do everything in **one process** (see `play_wavedash_monitor.py`): launch + hook + `seed_snapshot()` + `iw.write_instrs`/`patch_branch` to install a cave + read state each frame with `h.read_word` / `h.player_data_ptr(port)` while `h.wait_frames(1)` single-steps. **dme cannot re-attach from a fresh process** — to monitor a running session, build the monitor into the launching script.
 
 ## Run (human path)
-There is no separate "human launch" — the harness *is* how you launch. To just play offline, run `play_wavedash_offline.py` (above) and click the Dolphin window. Online play uses `play_d2.py` and the `online_*.py` scripts (read `docs/ONLINE_MACRO_GUIDE.md` first — online has different, desync-sensitive rules).
+There is no separate "human launch" — the harness *is* how you launch. To just play offline, run `play_wavedash_offline.py` (above) and click the Dolphin window. Online play uses `play_d2.py` (read WORKFLOW.md's online chapter first — online has different, desync-sensitive rules).
 
 ## Gotchas (battle scars — see also CLAUDE.md, HARNESS.md)
 - **dme hooks by process name "Dolphin"** — the harness launches a hardlink so `p_comm == "Dolphin"`. A user's own **"Slippi Dolphin"** (the Launcher) coexists and is ignored by `dme.hook()`, BUT a *stale* hardlink "Dolphin" mis-attaches → always `pkill -9 -x Dolphin` and poll `pgrep -x Dolphin` empty before launching (the driver does this). `pkill` returns instantly but the process takes seconds to die.

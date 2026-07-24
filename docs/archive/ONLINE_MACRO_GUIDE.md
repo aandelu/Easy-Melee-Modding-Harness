@@ -1,3 +1,5 @@
+> **HISTORICAL (archived 2026-07-24).** Dissolved into docs/REFERENCE.md (facts) + WORKFLOW.md (process). Kept for the L-cancel case study.
+
 # Online (Netplay) Macro Guide
 
 How to build and test a **netplay-safe** Melee macro that runs in a live Slippi

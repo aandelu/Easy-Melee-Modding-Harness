@@ -1,3 +1,5 @@
+> **HISTORICAL (archived 2026-07-24).** Superseded by docs/macros/wavedash.md. The "online port (your job)" section was completed 2026-06-04/05 — the port SHIPPED.
+
 # Wavedash Macro — Handoff / Next-Agent Jumpstart
 
 **Read this, then `ONLINE_MACRO_GUIDE.md` + `ONLINE_REFERENCE.md` + `CACTUAR_DASH_HANDOFF.md`.**

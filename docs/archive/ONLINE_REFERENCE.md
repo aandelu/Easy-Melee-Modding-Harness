@@ -1,3 +1,5 @@
+> **HISTORICAL (archived 2026-07-24).** Superseded by docs/REFERENCE.md (which started from this file). Do not trust drifted copies of facts here.
+
 # Online Macro — Quick Reference
 
 Cheat sheet for [`ONLINE_MACRO_GUIDE.md`](ONLINE_MACRO_GUIDE.md). NTSC 1.02

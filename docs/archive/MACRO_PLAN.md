@@ -1,3 +1,5 @@
+> **HISTORICAL (archived 2026-07-24).** The original development plan; executed. Three of its claims were later DISPROVEN: the "right hook" is NOT 0x803775C0 (buttons are read at 0x803775B8, and 0x803775C0 is now owned by meta-flush); netplay-safe macros are NOT intrinsically 1 frame late (producer-side hooks are frame-perfect); runtime dme patching IS possible (meta-flush). Current truth: docs/REFERENCE.md.
+
 # Macro Development Plan (post-harness)
 
 Captures the architectural choices, candidate designs, and open questions for actually building the Frame-1 macro now that the iteration harness is done. Authored before a `/compact` so details survive.

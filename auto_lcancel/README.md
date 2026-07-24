@@ -86,6 +86,11 @@ The macro writes only the pad-buffer halfword at `(r25)` — what Slippi
 rebroadcasts. No writes to action state, L-cancel timer, or landing-lag
 fields. To port online you'd:
 
+> **SUPERSEDED (2026-05-22):** the plan below predates the producer/consumer discovery — a
+> `0x803775B8` consumer-side hook can never be made online-safe. The online L-cancel shipped
+> instead as a producer-side analog-L pulse (`make_online_analog_lcancel_gecko.py`); see
+> `docs/macros/lcancel.md`. Kept for the port-gate/scene-check idioms only.
+
 1. Replace the hardcoded port gate (`cmpwi r24, 1`) with `lwz rX, -0x49E4(r13); cmpw r24, rX` — Slippi's documented local-port read.
-2. Add the scene check `*0x80489D30 == 0x208` so the macro only fires inside a Slippi online match.
+2. Add the scene check `*0x80479D30` (getMinorMajor `== 0x208`) so the macro only fires inside a Slippi online match. (Older docs said `0x80489D30` — that's a sign-extension error; see `docs/REFERENCE.md`.)
 3. Repackage as a boot-time C2 gecko via `Harness.install_gecko_c2`, modeled after `candidate_d_standalone_v2.py`. The runtime meta-flush path isn't appropriate for shipped online play.

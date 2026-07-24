@@ -1,159 +1,233 @@
-# Debugger-driven macro development workflow
+# Macro development workflow
 
-This doc describes how an agent uses the harness's runtime debugger (`instr_writer.py` + `bp.py`) to answer a question about the game, then turn that answer into a shipped gecko code.
+The one how-to-develop doc for this repo. A macro moves through three phases:
 
-This workflow assumes the architecture in [`HARNESS.md`](HARNESS.md) is already up. If `verify_savestate.py` and `verify_bp.py` both PASS, you're ready.
+1. **[Discover](#chapter-1--discover)** — offline, breakpoint-driven: answer the game-behavior questions the docs can't.
+2. **[Iterate](#chapter-2--iterate)** — turn the answer into cave logic and tune it, offline first, then online.
+3. **[Ship](#chapter-3--ship)** — package as a gecko, verify the bytes, test the real install path, deploy, record.
+
+This doc is procedure. Addresses, offsets, struct layouts, hook tables, register-preservation rules, and PPC encoding traps live in [`docs/REFERENCE.md`](docs/REFERENCE.md) — link targets below, don't restate them from memory. Harness API details are in [`HARNESS.md`](HARNESS.md). Worked per-macro write-ups are in `docs/macros/<name>.md`.
 
 ---
 
-## The five-stage loop
+## Chapter 1 — DISCOVER
 
-### Stage 1 — Pose the question, pick a hook
+Offline, savestate-driven, with software breakpoints. Everything in this chapter freezes or rewrites the game and is **dev/offline only**.
 
-Macro development always comes down to questions the static code/docs don't answer:
+### 1.1 Bring-up expectations
 
-- *"What action-state ID does Fox enter on the first frame of an aerial shine?"*
-- *"Which PPC instruction writes Fox's action-state byte when shine begins?"*
-- *"At hook X, what are the values of r3 and r4?"*
-- *"Does writing PD+0x65C alone trigger an input, or does the engine clobber it first?"*
+First time on a machine: [`HARNESS.md`](HARNESS.md) §9 (SIP disabled, Accessibility granted, `Dolphin` hardlink next to `Slippi Dolphin`). After that, a session starts from a clean slate:
 
-For each, pick a **hook address** where the CPU is guaranteed to be when the answer is observable. Sources in priority order:
+```bash
+pkill -9 -x Dolphin        # then poll `pgrep -x Dolphin` until empty —
+                           # plain pkill returns before the process dies
+```
 
-1. **`SSBM memory address sheet/Function_Addresses.csv`** — function entry points. Best for "what happens when X runs?"
-2. **Per-frame loop hooks** documented in `HARNESS.md` §6. `0x803775B8` (pad-read, BEFORE the buttons read) fires every frame per pad. `0x803775C0` (pad-process loop) is **taken by the meta-flush gecko** — do not use it for your own hooks.
-3. **`slippi-ssbm-asm-master/External/*.asm`** — every `# Address:` header in there is a hook proven to work in Slippi. Search there before assuming a hook is unsafe.
+Health-check with the verify suite before trusting anything. Each prints `[PASS]`/`[FAIL]` and exits non-zero on failure:
 
-### Stage 2 — Set the breakpoint, drive the trigger, freeze
+```bash
+python3 verify_savestate.py      # harness alive: launch, hook, snapshot (~12s)
+python3 verify_inject_gecko.py   # boot-time C2 install path (~25s)
+python3 verify_meta_flush.py     # runtime code-patch primitive (~25s)
+python3 verify_bp.py             # software breakpoints (~25s)
+python3 verify_d_standalone_v2.py  # shipped macro still reproduces (~15s)
+```
+
+If `verify_savestate.py` and `verify_bp.py` both pass, the discovery loop below is available. Prefix any run that assembles code with `DYLD_LIBRARY_PATH=/opt/homebrew/lib` (keystone needs it on this machine).
+
+### 1.2 Pose the question, pick a hook
+
+Discovery starts with a concrete question:
+
+- "What action-state ID does Fox enter on the first frame of X?"
+- "Which instruction writes this byte, and who calls it?"
+- "At hook X, what are r3 and r4?"
+- "Does writing this field stick, or does the engine clobber it?"
+
+Pick a **hook address** where the CPU is guaranteed to be when the answer is observable. Sources, in priority order:
+
+1. `SSBM memory address sheet/Function_Addresses.csv` — function entry points. Best for "what happens when X runs?"
+2. Per-frame hooks — see the hook table in [`docs/REFERENCE.md`](docs/REFERENCE.md). The pad-read at `0x803775B8` fires every frame per pad and is free; `0x803775C0` is **taken by the meta-flush gecko** — never hook it.
+3. `vendor/slippi-ssbm-asm-master/` — every `# Address:` header there is a hook proven to work in Slippi. Search it before assuming a hook is unsafe.
+
+Check the static sources first — the address sheet and vendored ASM are cheaper than launching Dolphin. If the question is answerable by reading data memory alone (no code patches), plain dme reads in a scratch script suffice; skip breakpoints entirely (worked examples of pure-dme exploration live in `dme_experiment/` — see its README and FINDINGS.md).
+
+### 1.3 Set the breakpoint, drive the trigger
 
 ```python
-from melee_harness import Harness, POWERON_COUNT
+from melee_harness import Harness
 import instr_writer as iw
 import scenario as sc
 import bp
 
 h = Harness()
 iw.install_meta_flush(h)          # MUST be before launch()
-h.launch()
-h.hook_dme()
-h._wait_for_cpu_alive()
+h.launch(); h.hook_dme(); h._wait_for_cpu_alive()
 iw.wait_for_meta_flush_alive(h)   # codehandler beat
-h.seed_snapshot()                 # F2 loads savestate slot 2, snapshots MEM1
+h.seed_snapshot()                 # F2 loads slot 2, snapshots all of MEM1
 
-# Install the BP.
-b = bp.set_breakpoint(h, target_addr=0x80...)
+b = bp.set_breakpoint(h, target_addr=0x80......)
 
-# Drive whatever triggers the situation you want to inspect.
+# Drive whatever triggers the situation you want to inspect:
 sc.force_action_state(h, port=1, state=sc.CATCH)   # e.g.
 
-# Wait for the BP to fire. Game freezes when it does.
-bp.wait_for_hit(b, timeout_s=5.0)
+bp.wait_for_hit(b, timeout_s=5.0)  # game freezes when it fires
 ```
 
-### Stage 3 — Inspect
+Scenario-driving rules:
 
-While the BP is parked in its spin loop, the entire PPC core is halted. You can:
+- `scenario.force_action_state` animates a state but applies **no physics**. Fine for self-contained triggers (e.g. Marth's Catch); useless for real motion. To actually jump/attack a character, inject controller inputs at the pad-read hook — see the self-drive pattern in §2.1.
+- You can also just play the trigger by hand with the Dolphin window focused.
 
-- **Read all registers**: `snap = bp.read_snapshot(b)` returns a dict with `r0..r31, lr, ctr, cr, pc`.
-- **Read arbitrary memory** via the usual `h.read_word(addr)` / `h.read_bytes(addr, n)`. Player Data, controller state, anything.
-- **Mutate registers before resume**: `bp.write_snapshot(b, r3=0xCAFE, lr=0x80003100)`. The handler reads the (potentially edited) snapshot on the way out and resumes with the new values. Use this to test "what if this branch had been taken?" without changing the code.
+### 1.4 Inspect, mutate, release
 
-### Stage 4 — Release, iterate
+While the BP spins, the entire PPC core is halted (Dolphin's window stays responsive — its other threads keep running):
 
-```python
-bp.continue_(b)
-# BP refires on next pad pass (if hook is per-frame).
-# wait_for_hit / read_snapshot / continue_ again as needed.
-bp.remove_breakpoint(b)   # restores the original instruction
-```
+- `snap = bp.read_snapshot(b)` → dict of `r0..r31, lr, ctr, cr, pc`.
+- Read any memory as usual: `h.read_word(addr)`, `h.read_bytes(addr, n)`.
+- `bp.write_snapshot(b, r3=0xCAFE, lr=0x80003100)` — edit registers before resume. Use this to test "what if this branch had been taken?" without changing code.
+- `bp.continue_(b)` resumes; the BP refires next pass if the hook is per-frame. `bp.remove_breakpoint(b)` restores the original instruction.
 
-For conditional triggers ("only stop when r3 == 0xD4"): `bp.wait_for_condition(b, lambda s: s["r3"] == 0xD4)` — the handler fires every time the hook executes, but Python silently continues until the predicate matches. See `verify_bp_cond.py` for the pattern.
+Extensions:
 
-For single-step ("after this BP, halt at the next instruction"): `bp.step(b)` decodes the displaced original to find the successor PC, installs a one-shot BP there, and continues. See `verify_bp_step.py`. **Hazard:** if the successor PC is itself an already-installed gecko hook (like `0x803775C0`), step follows the gecko's branch into the codehandler cave rather than the vanilla instruction. The smoke test demonstrates this.
+- **Conditional stop:** `bp.wait_for_condition(b, lambda s: s["r3"] == 0xD4)` — the handler fires every hit but Python silently continues until the predicate matches. Pattern: `verify_bp_cond.py`.
+- **Single-step:** `bp.step(b)` installs a one-shot BP at the successor PC. Pattern: `verify_bp_step.py`. Hazard: stepping across an already-installed gecko hook follows the gecko's branch into the codehandler cave, not the vanilla successor — the smoke test demonstrates it.
 
-### Stage 5 — Convert finding to a gecko code
+Typical endgame: the snapshot's `lr` tells you which caller invoked the function you broke on; BP on the caller next, and repeat until you have the exact instruction/register/address the macro needs.
 
-Once you know the instruction / register / address that matters, build the gecko:
+### 1.5 The savestate loop and the wipe rule
 
-```python
-LOGIC = [
-    0x3D80803F,   # lis r12, 0x803F           ← hand-written PPC, big-endian ints
-    0x618C....,   # ori r12, r12, 0x....
-    ...
-]
+There is no programmatic savestate API. `seed_snapshot()` loads slot 2 (synthetic F2) and snapshots all 24 MB of MEM1; `restore_snapshot()` writes it back to revert game state, patches, and the frame counter together.
 
-h.install_gecko_c2(name="my-macro", hook_addr=0x80...,
-                   logic_words=LOGIC, displaced_orig=0x...)
-```
+The rule that governs the whole offline workflow: **runtime patches are wiped by anything that rewrites MEM1** — `seed_snapshot()`, `restore_snapshot()`, and manual savestate loads. Boot geckos survive (the codehandler reinstalls them); `write_instrs` patches do not.
 
-**Always verify the assembled bytes before launching.** `verify_v2_with_keystone.py` is the reference pattern: hand-write the logic AND a label-only PPC source, assemble the source with `keystone-engine`, bit-for-bit diff. Catches the hand-counted-branch-offset class of bug that ate D.1 in `docs/sessions/2026-05-15.md`.
+- Install runtime patches **after** `seed_snapshot()`.
+- Iterate by **in-game cycling** (re-drive the trigger, rewrite the cave), not by reloading slot 2 between trials.
+- If you must `restore_snapshot()`, re-install your patches afterwards.
 
-For runtime iteration (without rebooting Dolphin per candidate), use `iw.write_instrs(h, cave, LOGIC)` to install at runtime. The meta-flush gecko issues `dcbf`/`sync`/`icbi`/`isync` so the CPU observes the new bytes. **Caveat:** runtime-installed code is wiped by `h.restore_snapshot()`. Either re-install after each restore, or install before `seed_snapshot()`.
+### 1.6 Sharp edges
+
+- BPs are **never** usable online — the spin desyncs a netplay session instantly.
+- PPC encoding traps (r0-as-rA, `lmw` restrictions) and the pad-struct layout: [`docs/REFERENCE.md`](docs/REFERENCE.md). Copy register handling from `bp.py` / `instr_writer.py` rather than improvising.
+- `SSBM memory address sheet/*.csv` is authoritative over any curated doc. Trust empirical reads over CSV descriptions for fields you can directly observe.
+- dme writes to the processed controller region race Dolphin's input pipeline and don't propagate — inject inputs at a hook, never by writing controller data memory.
 
 ---
 
-## Sharp edges (read these before debugging)
+## Chapter 2 — ITERATE
 
-1. **BPs halt the entire PPC core.** Dolphin's other threads (audio, graphics, window) keep running, so the application stays responsive. But on a real Slippi netplay session, the spin would desync. The BP primitive is **dev/offline only**.
+Two loops. Do the offline one first, always — most mechanics (trigger, action, observable) reproduce offline, and it's faster. Only netplay delay and netplay-safety are online-only concerns.
 
-2. **The meta-flush hook is at `0x803775C0`.** Any BP / runtime-installed code that wants the pad-process loop must use a different hook (e.g. `0x803775B8`, the pad-read).
+### 2.1 Offline loop
 
-3. **`runtime` patches do not persist across `restore_snapshot`.** Snapshot is taken once at `seed_snapshot()`. `restore_snapshot()` writes 24 MB of MEM1 back, wiping any runtime patches you installed after the snapshot. The shipped gecko codes (those installed via `install_gecko_c2`) survive because they're in MEM1 at snapshot time.
+Two ways to run cave code offline:
 
-4. **The r0-as-rA trap.** In `addi`, `addis`, `lis`, `stmw`, and load/store instructions with `rA` = base register, an rA *field* value of 0 reads as the literal value 0, NOT register r0. `addi r0, r0, 16` computes `0 + 16 = 16`, not `r0 + 16`. Always use r3..r12 as base registers in cave handlers. `bp.py` and `instr_writer.py` both navigate this carefully; copy their patterns when extending.
+- **Boot-time gecko** (`Harness.install_gecko_c2`, before `launch()`): what a finished offline macro uses. Requires a Dolphin relaunch per change — too slow for iteration.
+- **Runtime meta-flush** (`instr_writer.write_instrs` + `patch_branch`): the iteration workhorse. One meta-flush gecko installed at boot; after that, dme-write fresh PPC anywhere in MEM1 and it's live within ~1 frame.
 
-5. **`lmw rD, d(rA)` is undefined when rA is in [rD..r31].** Restore r1 manually with a separate `lwz r1, ...` after `lmw r2, ...` rather than relying on `lmw r0, ...` to also restore r1.
-
-6. **Address sheet > `Project_Addresses.md`.** `SSBM memory address sheet/*.csv` is authoritative. The curated quick-reference often omits load-bearing details (e.g. the `+0x2C` indirection between GObj and Player Data).
-
-7. **Stepping across an existing gecko hook follows the gecko's branch.** If you step past a patched instruction, the "displaced original" you captured is a branch into the codehandler cave, not the vanilla instruction. `bp.step()` does the right thing in most cases but the smoke test documents the edge case.
-
----
-
-## End-to-end example: "where does Fox's action state get written when shine starts?"
-
-Sketch (not a runnable script — adapt to your situation):
+The loop:
 
 ```python
-h = Harness()
-iw.install_meta_flush(h)
+# after the §1.3 bring-up through seed_snapshot():
+payload = finalize_payload(logic, HOOK, CAVE, DISPLACED)  # [logic][displaced][branch]
+iw.write_instrs(h, CAVE, payload)
+iw.patch_branch(h, HOOK, CAVE)
+# observe via h.read_word / read_bytes; change logic; re-write_instrs; repeat.
+```
+
+Loop discipline:
+
+- **Assemble and verify every payload before flushing it** (§3.1 — the rule applies here too, not just at ship time).
+- **Iterate in-game**, never by reloading slot 2 (the wipe rule, §1.5).
+- **A/B without relaunching:** toggle a single *code* instruction (`oris`↔`nop`, `stb`↔`nop`) via `write_instrs` to compare on/off in one session.
+- **Self-drive** the character when no human is on the sticks: at the pad-read hook, read the action state and inject the inputs that cycle it (Wait→jump, airborne→attack, ...). `play_wavedash_offline.py` and `play_d2.py` are runnable worked examples; `verify_d2.py` shows the observation side.
+- **Cave placement matters.** Use the cave map in [`docs/REFERENCE.md`](docs/REFERENCE.md); never overlap the meta-flush control plane — a cave that grows into it gets corrupted by `flush_range` and crashes Dolphin.
+- Pick the **observable** before writing logic: a direct game-state flag beats a derived measurement. Find it in the address sheet first.
+
+### 2.2 Online loop
+
+Read this whole subsection before the first online run — online violates most offline assumptions. Per-address facts (producer hooks, ODB fields, scene IDs, register preservation): [`docs/REFERENCE.md`](docs/REFERENCE.md).
+
+**One-time prerequisite — the slot-4 bake.** The harness enters online by loading savestate slot 4 (a savestate of the direct-connect menu with the opponent's code pre-typed), and **a savestate load wipes every gecko not present when the state was captured**. So any gecko you need online must be *baked into* slot 4:
+
+1. Slippi Manager → Add Gecko Code → paste the gecko (meta-flush for dev iteration; the finished macro when shipping, §3.4).
+2. Enter an online match **the normal way** (matchmaking/direct — not via F4) so the gecko is live.
+3. At the direct-connect menu, save state to **slot 4**.
+
+Re-bake whenever the baked gecko changes.
+
+**Entry.** All in **one** Python process, start to finish — re-attaching dme from a fresh process yields torn garbage reads; verify a known word (a hook branch) before writing anything, and abort if it fails.
+
+```python
+kill_stale_dolphins()
+h = Harness()                    # do NOT install_meta_flush — it's baked in slot 4
 h.launch(); h.hook_dme(); h._wait_for_cpu_alive()
-iw.wait_for_meta_flush_alive(h)
-h.seed_snapshot()
-
-# Hypothesis: Set_Action_State is called when shine begins. Per Function_Addresses.csv,
-# Set_Action_State is at 0x800693AC (verify this from the sheet — example only).
-b = bp.set_breakpoint(h, 0x800693AC)
-
-# We expect this to fire constantly. Use a conditional BP that only stops
-# when r3 (the port's Player Data ptr) belongs to Fox (P2) AND the new
-# action state (in r4) is in the shine ID range.
-def pred(s):
-    pd = s["r3"]
-    if not (0x80000000 <= pd < 0x81800000):
-        return False
-    port = h.read_word(pd + 0x0C) & 0xFF
-    return port == 1   # P2 = port index 1
-
-# Trigger: force Fox into the input pattern that should yield shine. Or
-# play it manually with the Dolphin window in focus.
-sc.force_action_state(h, port=2, state=sc.KNEE_BEND)   # set up jumpsquat
-
-bp.wait_for_condition(b, pred, timeout_s=10)
-snap = bp.read_snapshot(b)
-print(f"Set_Action_State called with PD=0x{snap['r3']:08X}  new_state=0x{snap['r4']:04X}  LR=0x{snap['lr']:08X}")
-
-# LR tells us which caller invoked Set_Action_State. That's the instruction
-# we want to investigate further (BP on it, or read backwards from there).
-bp.continue_(b)
-bp.remove_breakpoint(b)
+h.enter_online(peer=Peer())      # F4 + Enter locally; auto-drives the Windows peer
 ```
 
-The answer (an exact action-state ID + the calling-instruction PC) becomes the input to Stage 5 — write a gecko that hooks the calling site and reacts.
+`Harness.enter_online(peer=Peer())` (from `peer.py`) triggers the Windows peer over SSH — Slippi launch, F1 (its slot-1 direct-connect savestate), Enter — via a pre-registered interactive Scheduled Task, then retries F4+Enter locally until in-game. One-time peer setup: [`peer/SETUP_WINDOWS.md`](peer/SETUP_WINDOWS.md); smoke test: `python3 verify_peer.py`. Success is confirmed by **two signals**: the peer's `peer_status.json` (`ok:true` = the Windows side did its part) and the Mac's own scene reaching in-game (`0x0208` at the scene controller `0x80479D30`; the online CSS is `0x0008`). If the peer reports ok but the scene never advances, the problem is savestate/timing/network, not peer plumbing. Never blind-Enter at the CSS — retries must re-load the slot-4 savestate each attempt, or you can drift into an offline VS match.
+
+**Patching.** Confirm meta-flush is live (its hook reads as a branch, `0x48xxxxxx`), then `write_instrs` + `patch_branch` exactly as offline — but only at **producer-side** hooks.
+
+**Hard rules** (each one cost real time):
+
+- **Producer-side input edits only.** Editing pad data after Slippi serializes it (consumer side) desyncs. The producer hooks and their preserved-register requirements are in [`docs/REFERENCE.md`](docs/REFERENCE.md).
+- **Pulse, don't hold.** The game has no input buffer; a held button (or analog value) registers one rising edge. Release between presses.
+- **Toggle code, not data.** Scratch data in the cave region is not reliably preserved across rollback; patched code is.
+- **Cadence off the global frame counter** if you need a rhythm — the per-action frame counter freezes during hitlag.
+- **Majority-vote and throttle every Python-side read.** Rollback rewrites MEM1 mid-read; read N times and take the mode, sleep ~12 ms between reads, and re-`dme.hook()` on any read/write failure (heavy polling detaches dme).
+- **The user's screen is the only desync ground truth.** Producer-side edits shouldn't desync, but confirm after every run — your side can look fine while desynced.
+
+**Instrument in the cave, not in Python.** For anything frame-precise, a Python observer polling at ~60 fps is *lossy* — it cannot reliably sample a 1-frame state, and during the wavedash port it confidently reported a 1-frame-late timing as correct, sending the tuning the wrong way. Ground truth came from instrumenting the cave itself: outcome **counters** (e.g. perfect-vs-floaty per candidate) and a **per-frame state ring buffer** written by the hook, dumped over dme after the fact. Build the in-cave instrument **before** concluding anything about frame timing. Expect producer hooks to record ~2×/frame (rollback re-simulation runs them too) and normalize accordingly. Full account: [`docs/archive/WAVEDASH_ONLINE_RESULTS.md`](docs/archive/WAVEDASH_ONLINE_RESULTS.md). Python-side observers (`attach_observe_wavedash.py`, `play_wavedash_monitor.py`) are fine for coarse "is it alive / roughly what happened" monitoring only.
 
 ---
 
-## When NOT to use this workflow
+## Chapter 3 — SHIP
 
-- **For final macro shipping.** The shipped code is a boot-time gecko (`install_gecko_c2`) installed via `GameSettings/GALE01r2.ini`, exactly like `candidate_d_standalone_v2.py`. The debugger isn't on at runtime.
-- **For pure-dme exploration.** If you can answer the question by reading/writing data memory only (no code patches, no BPs), `dme_experiment/` already has the patterns. See its `FINDINGS.md`.
-- **For static questions** answerable from the address sheet + `slippi-ssbm-asm-master/`. Always check those first; they're cheaper than launching Dolphin.
+### 3.1 Package as a C2 gecko
+
+Package the proven cave with `gecko_c2_lines` (in `melee_harness.py`) — it formats Dolphin GameSettings INI / Slippi Manager lines. Write a generator script per macro (`make_*_gecko.py` — `make_wavedash_gecko.py`, `make_online_analog_lcancel_gecko.py`, and `make_cactuar_dash_gecko.py` are the templates) that builds, verifies, and prints the gecko, with a header stating what it does, the hooks, and how it was validated. For online macros, emitting a RAW (06+04) form alongside the C2 form is worthwhile — it reproduces the exact validated memory state.
+
+**Mandatory: assemble with keystone and capstone-verify before Dolphin ever sees the bytes.** Hand-counted branch offsets are the #1 source of "gecko silently doesn't fire". Use the shared `assemble_and_verify` helper in `gecko_tools.py` — that is the required path for every payload, dev or ship (`python3 gecko_tools.py` runs its self-check; `check_c2_body` enforces the C2 last-word padding rule). Disassemble the full payload and eyeball that branches land in-cave and the displaced original is present.
+
+**The C2 codehandler overwrites the body's last word** with its branch-back — it does not append. A C2 body must therefore end with a throwaway word; `gecko_c2_lines` reserves the trailing slot automatically. Never hand-roll a C2 that ends on a needed instruction (the displaced original is the classic casualty). Prove a C2 cave kept its displaced word with `verify_codehandler_displaced.py`.
+
+### 3.2 Test the REAL install path
+
+The harness's minimal INI staging is **not** the same environment as the user's real Slippi install, and the differences bite silently:
+
+- User-added INI codes install into whatever codehandler append space the user's full codeset leaves — the harness path doesn't have this limit. The cactuar-dash gecko passed every harness test and then **silently no-op'd in real Slippi** for exactly this reason.
+- The harness's own boot codehandler cave is small; a large C2 that won't fit simply doesn't appear at its hook, with no error.
+
+So before calling a macro shipped: install it the way the user will (paste into Slippi Manager / the real user dir), boot the way the user will, and **confirm the hook address reads as a branch** into a cave containing your logic. Validate logic via the dme path and C2 packaging via a small probe if the full C2 can't be end-to-end tested in the harness — but the real-install check is not optional.
+
+### 3.3 Ship offline
+
+- Package per §3.1; install via `Harness.install_gecko_c2` (harness use) or user-dir INI paste (standalone). `candidate_d_standalone_v2.py` is the shipped-standalone template.
+- Provide a `verify_*.py` that reproduces the macro on a savestate and prints `[PASS]`/`[FAIL]` (e.g. `verify_d_standalone_v2.py`).
+
+### 3.4 Deploy online — the F4 bake
+
+An online macro must survive the F4 slot-4 entry, so it ships by being baked into the savestate, same procedure as §2.2's prerequisite:
+
+1. Add the final gecko in Slippi Manager (both codes, if the macro uses two hooks) and enable.
+2. Enter an online match normally — not via F4 — so the codehandler installs it.
+3. Save state to slot 4 at the direct-connect menu.
+4. Verify: enter via F4, confirm the hook(s) read as branches, play, and have the user confirm no desync.
+
+For real (non-harness) play the user just adds and enables the gecko — no savestate or harness needed; the bake only matters for harness-driven entry.
+
+### 3.5 Record it
+
+- Update [`docs/STATUS.md`](docs/STATUS.md) — every shipped macro gets a line (name, gecko file, generator, validation state, pending items).
+- Write or update the macro's page at `docs/macros/<name>.md`: mechanic, hooks, timing model, what was validated and how, known limits.
+- Commit the gecko text file (`*.gecko.txt`) and its `make_*_gecko.py` generator together.
+
+### Ship checklist
+
+- [ ] Payload assembled via `gecko_tools.assemble_and_verify` (keystone + capstone), branches land in-cave, displaced original present
+- [ ] C2 body ends on a throwaway word; `verify_codehandler_displaced.py`-style check if in doubt
+- [ ] Real install path tested: user-style install, hook reads as a branch
+- [ ] Offline: `verify_*.py` passes. Online: slot-4 re-baked with the final gecko, F4 entry verified, user confirms no desync
+- [ ] `make_*_gecko.py` generator + `*.gecko.txt` committed, header documents hooks and validation
+- [ ] [`docs/STATUS.md`](docs/STATUS.md) and `docs/macros/<name>.md` updated

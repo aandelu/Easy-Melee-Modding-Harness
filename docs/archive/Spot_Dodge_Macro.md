@@ -1,3 +1,5 @@
+> **HISTORICAL (archived 2026-07-24).** Pre-harness gecko kept as an artifact only. Its approach is wrong three ways: 0x803775C0 cannot inject buttons (they're read earlier, at 0x803775B8), the hook is consumer-side (desyncs online), and it's now owned by the meta-flush gecko. Do not copy patterns from this file — see docs/REFERENCE.md.
+
 # Local Spot Dodge Macro (Reaction Test) - Hardware Pad Hook
 
 This iteration bypasses the Game Engine's global floats completely to ensure there is **zero risk** of memory corruption or joystick breakage. 

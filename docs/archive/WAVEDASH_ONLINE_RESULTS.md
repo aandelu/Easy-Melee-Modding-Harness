@@ -1,3 +1,5 @@
+> **HISTORICAL (archived 2026-07-24).** Findings absorbed into docs/macros/wavedash.md; the instrument-over-observer lesson lives in WORKFLOW.md.
+
 # Wavedash — Online Port: Results & Findings (2026-06-04)
 
 The online port of the up-bound wavedash (offline build = `play_wavedash_offline.py`,

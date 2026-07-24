@@ -10,7 +10,7 @@ logged in, and unlocked; the Mac does the rest.
 > **Status: verified end-to-end (2026-06-06)** on a real two-machine setup — the
 > Mac launched Slippi and connected with zero physical interaction on the Windows
 > box. The committed `peer/` files include the bug-fixed `melee_peer.py` and the
-> verified `win_paths.py`; see `HANDOFF_WINDOWS_PEER.md` for the original
+> verified `win_paths.py`; see `docs/archive/HANDOFF_WINDOWS_PEER.md` for the original
 > bring-up notes.
 
 ## Why it's built this way (read this first)

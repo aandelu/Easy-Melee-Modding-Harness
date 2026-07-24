@@ -41,6 +41,9 @@ SQUAT_WAIT = 0x0028         # held crouch
 # shine startup / loop states for Fox.
 FOX_SHINE_GROUND_START = 0x0168
 FOX_SHINE_GROUND_LOOP = 0x0169
+# Aerial shine (canonical JC-shine lands here directly from KneeBend).
+FOX_SHINE_AERIAL_START = 0x016D
+FOX_SHINE_AERIAL_LOOP = 0x016E
 
 # Universal action states (< 0x155). KneeBend (0x18) is the standard jumpsquat
 # state across characters; verify_candidate_b is expected to confirm Fox enters

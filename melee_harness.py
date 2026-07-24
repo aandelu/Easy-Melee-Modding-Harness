@@ -147,14 +147,15 @@ DOLPHIN_HARDLINK = (
 ISO_PATH = "/Users/andrewashman/Desktop/isos/Super Smash Bros. Melee (v1.02 NTSC).iso"
 USER_DIR = ("/Users/andrewashman/Library/Application Support/"
             "com.project-slippi.dolphin/netplay/User")
-DOLPHIN_LOG = "/Users/andrewashman/Desktop/melee/dolphin.log"
+_REPO_DIR = os.path.dirname(os.path.abspath(__file__))
+DOLPHIN_LOG = os.path.join(_REPO_DIR, "dolphin.log")
 # GameSettings override vendored from libmelee (its bundled GALE01r2.ini with
 # {extra_codes} substituted empty). Replacing Slippi Dolphin's default GALE01
 # gecko-code list with this minimal one suppresses an IntCPU "Unknown
 # instruction" dialog that fires while loading our savestate. libmelee did the
 # same thing via tmp_home_directory + setup_gecko_codes; without it, direct
 # subprocess launches trigger the dialog every session.
-GAME_SETTINGS_INI = "/Users/andrewashman/Desktop/melee/GALE01r2.ini"
+GAME_SETTINGS_INI = os.path.join(_REPO_DIR, "GALE01r2.ini")
 
 # --- GameCube MEM1 (the snapshot/restore region used as the "savestate") ---
 MEM1_BASE = 0x80000000
@@ -638,7 +639,7 @@ class Harness:
         enter_online() (and, for recovery, restart()), each returning (ok,status)
         or None -- no import of the peer module here.
 
-        Per docs/WAVEDASH_ONLINE_RESULTS.md, re-fire BOTH sides each attempt
+        Per docs/archive/WAVEDASH_ONLINE_RESULTS.md, re-fire BOTH sides each attempt
         (reloading the direct-connect savestate fresh); never blind-Enter at the
         CSS -- it drifts into offline VS (0x0202). Two confirmation signals: the
         peer's own status (ok = it focused + sent F1/Enter) and the Mac's scene

@@ -1,3 +1,5 @@
+> **HISTORICAL (archived 2026-07-24).** Pre-harness exploration history. Current architecture: HARNESS.md; current state: docs/STATUS.md.
+
 # SSBM Frame-1 Macro Project: Context & Progress Summary
 
 > **Note:** This document captures the **pre-harness exploration** and the failed approaches that led to the current architecture. For the actual implementation and how to use the harness, see **[`HARNESS.md`](./HARNESS.md)**. The "Next Step: The SIP-Disabled Plan" at the bottom of this doc has since been executed and superseded — SIP is disabled, `dolphin-memory-engine` works, but the live-Python-loop architecture envisioned there turned out to be infeasible for code injection (Dolphin's CPU emulator doesn't observe dme writes to instruction memory). We instead inject via Slippi's bootloader at boot time and use dme for data only.

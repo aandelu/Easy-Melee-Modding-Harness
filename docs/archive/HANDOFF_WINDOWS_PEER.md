@@ -1,3 +1,5 @@
+> **HISTORICAL (archived 2026-07-24).** Superseded by peer/SETUP_WINDOWS.md (current and complete). This file's §9 was stale on every bullet (verify_peer.py exists at repo root; SETUP_WINDOWS covers caffeinate.py / peer_status.json / the window-title fix).
+
 # Windows netplay-peer setup — handoff notes
 
 **Date:** 2026-06-06

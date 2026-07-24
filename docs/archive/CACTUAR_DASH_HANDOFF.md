@@ -1,3 +1,5 @@
+> **HISTORICAL (archived 2026-07-24).** Superseded by docs/macros/cactuar_dash.md. Kept for the dev narrative.
+
 # Cactuar Dash — Handoff / Next-Agent Jumpstart
 
 **Read this, then `ONLINE_MACRO_GUIDE.md` + `ONLINE_REFERENCE.md`.** Current state,

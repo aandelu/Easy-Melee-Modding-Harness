@@ -1,8 +1,8 @@
-# Frame-1 Macro Harness — Architecture & Usage
+# Harness — Architecture & Usage
 
-Closed-loop development environment for the Frame-1 gecko macro project (Fox auto-shines on Marth's grab). The harness lets us iterate **autonomously** — install a candidate gecko code, reset game state, drive the trigger, observe the reaction, classify, repeat — with no human interaction per cycle.
+Closed-loop development environment for the Easy Melee gecko macros. The harness lets agents iterate **autonomously** — install a candidate gecko code, reset game state, drive the trigger, observe the reaction, classify, repeat — with no human interaction per cycle.
 
-This document is the authoritative description of the **current** architecture. `docs/Project_Context.md` captures the earlier exploration that led here. For the debugger-driven workflow built on top of this harness, see `WORKFLOW.md`.
+This document covers the harness architecture and API. It was written in mid-May 2026 and is accurate for the harness itself, but its file inventories predate the 2026-07-24 cleanup — trust `CLAUDE.md`'s routing table, `docs/STATUS.md` for project state, and `docs/REFERENCE.md` for memory-map facts. For the dev workflow built on top, see `WORKFLOW.md`. Pre-harness history: `docs/archive/Project_Context.md`.
 
 ---
 
@@ -137,15 +137,13 @@ The pre-harness era (libmelee, MemoryWatcher, manual asm scripts) AND the candid
 | `README.md`                         | Top-level entry point for humans + new agents.                                                                                              |
 | `CLAUDE.md`                         | Auto-loaded by Claude Code. Architecture + gotchas in one page.                                                                             |
 | `WORKFLOW.md`                       | The debugger-driven macro-development workflow (BP + meta-flush usage patterns).                                                            |
-| `docs/Project_Context.md`           | Pre-harness exploration history. Read for backstory; not authoritative for current architecture.                                            |
-| `docs/Project_Addresses.md`         | Curated memory map. Starting point only — does not call out the GObj→Player Data `+0x2C` indirection.                                       |
-| `docs/Gecko_Code_Analysis.md`       | Disassembly of relevant Slippi-safe codes (Swap X/Z, UnclePunch X+Y, Flash Red L-Cancel). Useful templates.                                |
-| `docs/Spot_Dodge_Macro.md`          | Earlier hardware-PADStatus-hook macro spec; worked example of the `0x803775C0` hook.                                                       |
-| `docs/MACRO_PLAN.md`                | Original development plan (mostly executed; useful for "why these specific files exist" archaeology).                                       |
-| `docs/sessions/2026-05-15.md`       | Session log of Candidate B/D attempts — the D.1 puzzle that motivated the keystone-verification pattern.                                    |
+| `docs/STATUS.md`                    | **The state board** — what's shipped/pending. Start every session here.                                                                     |
+| `docs/REFERENCE.md`                 | Every stable fact (memory map, hooks, injection rules, PPC traps, dme rules) stated once.                                                    |
+| `docs/macros/`                      | Per-macro design + open items (jc_shine, lcancel, cactuar_dash, wavedash).                                                                  |
+| `docs/archive/`                     | HISTORICAL: session logs, superseded plans/handoffs, old disassembly notes.                                                                 |
 | `SSBM memory address sheet/`        | **Authoritative** memory map. CSVs: `Global_Addresses`, `Entity_Data_Offsets`, `Char_Data_Offsets`, `Function_Addresses`, `Free_Memory`, `Action_State_Reference`, `ID_Lists`, etc. Check here first before assuming something is undocumented. |
-| `slippi-ssbm-asm-master/`           | The official Slippi gecko codeset (Bootloader, Online, Recording, Playback, External, Common). Build via `gecko` Go tool. Convention reference for any new `.asm` we author. |
-| `gecko-master/`                     | The `gecko` Go tool source. Compiles `.asm` files → `.ini` gecko codes.                                                                    |
+| `vendor/slippi-ssbm-asm-master/`    | The official Slippi gecko codeset (Bootloader, Online, Recording, Playback, External, Common) — the mod we build on. Convention + address authority (`Common/Common.s`). |
+| `vendor/gecko-master/`              | The `gecko` Go tool source. Compiles `.asm` files → `.ini` gecko codes.                                                                    |
 | `dme_experiment/`                   | Parallel exploration: reproduce findings via pure-dme writes (no gecko codes). See its `README.md` and `FINDINGS.md`.                       |
 
 ## 5. Workflow — iterating on a candidate
@@ -199,7 +197,7 @@ Key convention notes for hand-rolling:
 
 All addresses are for **SSBM v1.02 NTSC** (`GALE01.iso`). See the `SSBM memory address sheet/` CSVs for the full map.
 
-### Player data — `Project_Addresses.md` is incomplete here
+### Player data — the required GObj indirection
 ```
 0x80453130            P1 GObj pointer            (+0xE90 stride per port)
 0x80453130 + (port-1)*0xE90 = port's GObj ptr addr
@@ -294,8 +292,8 @@ For a complete inventory grep `slippi-ssbm-asm-master/**/*.asm` for `# Address:`
 6. **Slippi's default GALE01 gecko codes panic on savestate load** with `IntCPU: Unknown instruction 00000007 at PC=80c833a4 last_PC=80001f18` (gecko codehandler branches into restored runtime heap). The vendored `GALE01r2.ini` override + `UsePanicHandlers=False` together silence this.
 7. **Dolphin Hotkey device must be `Quartz/0/Keyboard & Mouse`** in Hotkeys.ini for synthetic F2 to land. The user fixed this once; it persists in their real `USER_DIR/Config/Hotkeys.ini` and our `shutil.copytree` carries it into each tmp dir.
 8. **F2 fires too early to load a savestate** if sent right after `launch()`. We must wait for `POWERON_COUNT (0x804D7420)` to start ticking before sending F2 (Slippi Dolphin doesn't accept hotkeys until Melee is past initial boot).
-9. **Player data is at `*(GObj+0x2C)`, NOT directly at `0x80453130`'s pointee.** `0x80453130`'s pointee is a `GObj` struct (`Entity_Data_Offsets.csv`); offsets like `0x10`, `0x04`, `0x65C` are inside Player Data which is one indirection deeper. `Project_Addresses.md` glosses over this; the harness's `player_data_ptr(port)` helper does the indirection.
-10. **`docs/Project_Addresses.md` is a curated subset** of the full address sheet in `SSBM memory address sheet/`. When chasing an SSBM fact, **always** check the address sheet CSVs first — they have things `Project_Addresses.md` omits (e.g., the frame counter, the GObj layout, the free-memory list).
+9. **Player data is at `*(GObj+0x2C)`, NOT directly at `0x80453130`'s pointee.** `0x80453130`'s pointee is a `GObj` struct (`Entity_Data_Offsets.csv`); offsets like `0x10`, `0x04`, `0x65C` are inside Player Data which is one indirection deeper. The harness's `player_data_ptr(port)` helper does the indirection.
+10. **When chasing an SSBM fact, always check the `SSBM memory address sheet/` CSVs first** — they are the upstream authority (frame counters, GObj layout, free-memory list); `docs/REFERENCE.md` is the curated project view. (The old `docs/Project_Addresses.md` was deleted 2026-07-24: it omitted the `+0x2C` indirection and carried a wrong scene address.)
 11. **macOS-specific:** SIP must be disabled (for `task_for_pid`). Accessibility permission must be granted to the Terminal/Python (for CGEvent F2). `AXIsProcessTrusted()` confirms.
 12. **macOS has no `timeout` cmd.** Use Python `_deadline` (SIGALRM-based) for hard wall-clock deadlines. SIGALRM does **not** interrupt blocking FIFO `open()` on the main thread, though, so libmelee's `connect()` couldn't be timed out that way.
 13. **Don't pipe Python output through `grep`** during long runs — line buffering hides progress. Use `python3 -u … > logfile` instead.
@@ -318,7 +316,7 @@ For a complete inventory grep `slippi-ssbm-asm-master/**/*.asm` for `# Address:`
 
 These were in the "open" list in earlier session logs but no longer apply:
 
-- ~~"Fox's shine action state ID is not yet known."~~ Identified: `0x0168` ground startup, `0x0169` ground loop, `0x016D` aerial startup, `0x016E` aerial loop, `0x0170` aerial fall. Live in `scenario.py`. See `docs/sessions/2026-05-15.md`.
+- ~~"Fox's shine action state ID is not yet known."~~ Identified: `0x0168` ground startup, `0x0169` ground loop, `0x016D` aerial startup, `0x016E` aerial loop, `0x0170` aerial fall. Live in `scenario.py`. See `docs/archive/sessions/2026-05-15.md`.
 - ~~"The harness restarts Dolphin per candidate."~~ Still true per *script*, but within a session the meta-flush path lets you swap PPC bytes at runtime without reboot.
 - ~~"Trigger via action-state poke is an abstraction leak."~~ Still true for some macros, but the BP primitive (`bp.py`) gives an alternate path: hook a function entry that runs when the input would be processed, snapshot, edit registers, continue.
 

@@ -1,131 +1,57 @@
-# CLAUDE.md
+# CLAUDE.md — Easy Melee Modding Harness
 
-This file is auto-loaded by Claude Code. It's the entry point for any agent working in this repo.
+**Easy Melee** makes Super Smash Bros. Melee (NTSC 1.02) easier for beginners by automating
+complicated tech skill: each deliverable is a **Slippi gecko code** that performs a technique
+(JC-shine, L-cancel, dash-back reversal, wavedash) from simple controller input — offline *and*
+online (netplay-safe). This repo is the development harness: an all-`dme`
+(dolphin-memory-engine) closed loop that launches Slippi Dolphin, injects candidate PPC code,
+drives scenarios, and observes results — plus a software debugger (breakpoints) and an
+autonomous Windows netplay peer, so agents can build and test macros end-to-end on their own.
 
-## Project goal
+## Route yourself
 
-Creating a frame-1 reaction macro for Super Smash Bros. Melee (NTSC 1.02): where the online opponent starts a grab,  and Fox (the offline player) executes a jump-cancelled shine on the same frame. The output is a gecko code.
+| You need | Read |
+| --- | --- |
+| **Current state / what to do next** | [`docs/STATUS.md`](docs/STATUS.md) — the state board. Start here every session. |
+| Any address, offset, hook, rule, or trap | [`docs/REFERENCE.md`](docs/REFERENCE.md) — every stable fact, stated once. The CSVs in [`SSBM memory address sheet/`](SSBM%20memory%20address%20sheet/) are the upstream authority. |
+| How to discover / iterate / ship a macro | [`WORKFLOW.md`](WORKFLOW.md) — the one dev-loop doc (offline, online, shipping). |
+| Harness architecture & API | [`HARNESS.md`](HARNESS.md) (setup checklist in §9). |
+| A specific macro's design & open items | `docs/macros/<name>.md` (jc_shine, lcancel, cactuar_dash, wavedash). |
+| The Windows peer (online test automation) | [`peer/SETUP_WINDOWS.md`](peer/SETUP_WINDOWS.md). |
+| Slippi online internals (the mod we build on) | `vendor/slippi-ssbm-asm-master/` — `Common/Common.s` is authoritative for Slippi addresses. |
+| History / superseded plans / session logs | `docs/archive/` (all banner-marked HISTORICAL — do not treat as current). |
 
+## The five fatal gotchas
 
-
-A Frame-1 reaction macro for Super Smash Bros. Melee (NTSC 1.02): when Marth (P1) starts a grab, Fox (P2) executes a jump-cancelled shine on the same frame. The offline shipped macro is `candidate_d_standalone_v2.py` (paste into a Slippi user dir to use offline or online). The harness exists so additional macros can be built/iterated with breakpoint-driven debugging. See `docs/Project_Context.md` for the full pre-harness history.
-
-## First moves for a new agent
-
-1. Skim **this file** (architecture + gotchas).
-2. If you need the harness running, see [`HARNESS.md`](HARNESS.md) §9 (first-time setup) — SIP disabled, Accessibility granted, Dolphin hardlink in place.
-3. If you're using the debugger to discover something new, see [`WORKFLOW.md`](WORKFLOW.md).
-4. **Building a NEW macro?** Start at [`docs/MACRO_DEV_HANDOFF.md`](docs/MACRO_DEV_HANDOFF.md) — the generic jumpstart: what to read, the injection points, and how the offline + online dev/test cycles actually work. Worked examples: [`docs/L_CANCEL_HANDOFF.md`](docs/L_CANCEL_HANDOFF.md) (analog-trigger pulse), [`docs/CACTUAR_DASH_HANDOFF.md`](docs/CACTUAR_DASH_HANDOFF.md) (a STICK input-veto + multi-frame state machine + runtime delay compensation), and [`docs/WAVEDASH_HANDOFF.md`](docs/WAVEDASH_HANDOFF.md) (up-bound wavedash: jump + airdodge state machine, per-character jumpsquat, an intent latch + live-direction read; **offline done, online port pending**).
-5. **Building/testing any macro that must run in a live ONLINE (netplay) match?** Read [`docs/ONLINE_MACRO_GUIDE.md`](docs/ONLINE_MACRO_GUIDE.md) first (+ [`docs/ONLINE_REFERENCE.md`](docs/ONLINE_REFERENCE.md)). Online has different rules than the offline savestate loop — savestate loads wipe boot geckos, only producer-side input edits are desync-safe, and the dev loop is savestate-baked-meta-flush + runtime dme patching. The `online_*.py` scripts are the worked experiments.
-6. Looking up an address/offset/state ID? Search [`SSBM memory address sheet/*.csv`](SSBM%20memory%20address%20sheet/) **first** — it's authoritative; `docs/Project_Addresses.md` is a curated subset.
-
-## Architecture in one page
-
-The working harness is `melee_harness.py` (`Harness` class). It is **all-dme, no libmelee** — libmelee was dropped because loading a savestate corrupts its Slippi EXI channel into permanent desync. `dolphin-memory-engine` (`dme`) handles everything: observation, scenario driving, reset, and (via the layers below) instruction-memory writes.
-
-### Three injection paths
-
-1. **Boot-time gecko install (`Harness.install_gecko_c2`).** Stages C2 codes into a tmp `GameSettings/GALE01r2.ini`; Slippi's bootloader reads the INI at boot, copies each body into a code cave, and flushes the icache. **Must be called before `launch()`.** This is the path the shipped macro uses. Demo: `verify_inject_gecko.py`.
-2. **Runtime dme+meta-flush (`instr_writer.write_instrs`).** Install ONE meta-flush gecko at boot whose only job is to `dcbf`/`icbi`/`isync` a dme-controlled range when asked. After that, the harness can dme-write new PPC instructions anywhere in MEM1 and have them take effect within ~1 frame. Demo: `verify_meta_flush.py`. **Caveat:** runtime patches do not survive `restore_snapshot()` (snapshot is taken before runtime patches exist).
-3. **Raw dme write to instruction memory.** Confirmed non-functional on Slippi Dolphin — the emulated CPU's instruction fetch never observes dme writes without an explicit `dcbf`+`icbi` on the affected lines. Diag at `old&unused/diag_inject_no_savestate.py`. Avoid.
-
-### Software breakpoints (`bp.py`)
-
-Built on path #2. `bp.set_breakpoint(h, addr)` overwrites the instruction at `addr` with a branch to a per-slot handler that snapshots r0..r31 + LR + CTR + CR to a fixed scratch RAM region, signals a hit flag, then spins on a continue flag. dme observes the hit, reads the snapshot (and optionally edits it), then sets the continue flag — handler restores registers, runs the displaced original, branches to addr+4. Game is frozen while the handler spins (Dolphin's other threads keep running, so the window stays responsive). **Not netplay-safe**; dev/offline only. Demo: `verify_bp.py`, conditional/step extensions in `verify_bp_cond.py`/`verify_bp_step.py`.
-
-### Reset model
-
-There is no programmatic savestate API. The user manually loads savestate slot 2 once per session (Dolphin GUI: Emulation > Load State > Slot 2), or the harness can send synthetic F2. `seed_snapshot()` waits for an in-game state, then snapshots **all of MEM1** (24 MB). `restore_snapshot()` writes the full MEM1 back each iteration — that single write reverts game state, code patches installed before snapshot, and the frame counter together. Writing the full 24 MB occasionally detaches dme; `restore_snapshot()` re-hooks defensively.
-
-### Process-name + Slippi quirks (macOS)
-
-- `dme.hook()` scans for a process literally named `Dolphin`, but Slippi's executable is `Slippi Dolphin`. The harness launches via a hardlink named `Dolphin` placed next to the real executable (`DOLPHIN_HARDLINK` in `melee_harness.py`). If `pgrep -x Dolphin` finds stale processes, `dme` may attach to the wrong one — close them first.
-- The harness builds a **tmp Dolphin user dir** per launch (symlinks every subdir of the real Slippi user dir except `GameSettings` and `Config`), then writes overrides:
-  - `GameSettings/GALE01r2.ini` — vendored from `./GALE01r2.ini`; replaces Slippi's default gecko list with a minimal one. Without it, savestate loads trigger an IntCPU "Unknown instruction" dialog.
-  - `Config/Dolphin.ini` — copied with `Interface.UsePanicHandlers=False`, which auto-dismisses the IntCPU panic dialog.
-- macOS SIP **must be disabled** for `dme` to use `task_for_pid` against Dolphin. Without that, every read/write fails regardless of entitlements.
-
-### Memory map notes (read these — they save hours)
-
-- `0x80453130` is the P1 **GObj** pointer, not Player Data directly. Player Data is at `*(GObj + 0x2C)`. All the Player-Data-relative offsets (`OFF_ACTION_STATE=0x10`, `OFF_BUTTONS=0x65C`, etc.) require this double-indirection. `docs/Project_Addresses.md` does not call out the `+0x2C` step; `Entity_Data_Offsets.csv` does. Use `Harness.player_data_ptr(port)`.
-- Two frame counters in `Global_Addresses.csv`: `0x80479D60` (primary, may reset between scenes) and `0x804D7420` (power-on count, never resets). `_pick_frame_counter()` auto-selects whichever is advancing.
-- Default code cave: `0x803FA3E8` (debug-menu tables region, `0x1F04` bytes). Safe to clobber.
-- **Hook `0x803775C0` is now taken by the meta-flush gecko.** Don't reuse it. The per-frame pad-read at `0x803775B8` (vanilla `lhz r0, 0(r25)` / `0xA0190000`) is free.
-- Netplay-safety pattern: scene check via `0x80489D30` (compare to `0x208` for Slippi online), local-port check via `r13 - 0x49E4`. Disassembled in `docs/Gecko_Code_Analysis.md`.
-- **PPC r0-as-rA trap**: in `addi`, `addis`, `lis`, `stmw`, and any load/store, an `rA` *field* value of 0 reads as the literal value 0, NOT register r0. `addi r0, r0, 16` computes `16`, not `r0 + 16`. Use r3..r12 as base registers; `instr_writer.py` and `bp.py` show the pattern.
-
-Offset documentation is located at `SSBM memory address sheet/*.csv`.
-
-### Input-injection gotchas (learned building `auto_lcancel/`, 2026-05-17)
-
-- **dme writes to `CONTROLLER_DIGITAL` (`0x804C1FAC`) race Dolphin's input pipeline and don't propagate.** The processed controller region is rewritten every poll. For input injection use the PadRead hook (below), not dme. (Documented in `melee_harness.set_digital_buttons` docstring; learning it from source costs ~30 min.)
-- **`scenario.force_action_state` animates the state but does NOT apply physics.** Fine for self-contained triggers like Marth's Catch (JC-shine path). Insufficient for character motion: forcing Fox into KneeBend won't jump him; forcing AttackAirN on the ground won't lift him. For real motion, drive a controller input via the PadRead hook.
-- **PadRead hook at `0x803775B8`** is the working OFFLINE input-injection path (`candidate_d2.py`, `auto_lcancel/auto_lcancel.py`). On entry: `r24` = 0-indexed port, `r25` = pad struct ptr. Full pad struct layout (same byte offsets as the PADStatus PAD_Read builds at `r4`): **16-bit buttons** at `0(r25)` (A=0x100, B=0x200, X=0x400, Y=0x800, L=0x40, R=0x20, Z=0x10, Start=0x1000), **stickX** `2`, **stickY** `3`, **c-stickX** `4`, **c-stickY** `5`, **analog L trigger** `6`, **analog R trigger** `7`, analogA `8`, analogB `9` (all signed/byte). Different layout from the 32-bit `CONTROLLER_DIGITAL` the address sheet documents.
-- **ONLINE is different — this hook DESYNCS online (consumer side).** For netplay-safe input editing, hook **producer-side inside PAD_Read**: `0x8034E2AC` for digital buttons (`oris r0,BIT`), `0x8034E680` for the **analog L trigger** (`stb val,6(r4)`, value `<0xAA`). The shipped online auto-L-cancel pulses analog L there. Full online rules + addresses are in `docs/ONLINE_MACRO_GUIDE.md` / `docs/ONLINE_REFERENCE.md` / `docs/L_CANCEL_HANDOFF.md` — read those before any online macro work.
-- **Runtime patches via `instr_writer.write_instrs` are wiped by `seed_snapshot()` and `load_savestate()`** — both reload MEM1. Install runtime patches AFTER `seed_snapshot`; iterate via in-game cycling, not by reloading slot 2 between trials. (Boot-time geckos survive because Slippi's codehandler reinstalls them post-load; runtime patches don't.)
-- **`pkill -x Dolphin` returns 0 immediately but the process takes seconds to actually die.** A stale Dolphin lingering at `dme.hook()` time causes the hook to attach to the dying process and every read fails. Use `pkill -9 -x Dolphin` and poll `pgrep -x Dolphin` until empty before launching.
-- **Trust empirical measurements over CSV descriptions for fields whose value you can directly observe.** `Char Data + 0x2354` ("Landing Lag Divisor") doesn't change on Fox L-cancels in this Slippi build; the real L-cancel observables are **`LCancelStatus` = Player Data `+0x25FF`** (u8: 0=none, 1=success, 2=fail — the direct per-landing flag) and **landing-state duration** (15f → 7f on NAIR). Note `Char + 0x680` ("frames since L/R pressed") tracks L/R only, NOT Z, so it's misleading for a Z-cancel.
-
-### Authoritative reference: the address sheet
-
-`SSBM memory address sheet/` contains the full SSBM data sheet exported as CSVs (`Global_Addresses.csv`, `Entity_Data_Offsets.csv`, `Char_Data_Offsets.csv`, `Function_Addresses.csv`, `Free_Memory.csv`, `Action_State_Reference.csv`, `ID_Lists.csv`, etc.). **Search here first** for any address, offset, action-state ID, or free-memory region before assuming something is undocumented.
+1. **macOS SIP must be disabled** and Dolphin launched via a hardlink named `Dolphin`
+   (Slippi updates wipe the hardlink — recreate it, see HARNESS.md §9). Stale/zombie
+   `Dolphin` processes steal the dme attach: `pkill -9 -x Dolphin` and poll `pgrep` until empty.
+2. **`0x80453130` is a GObj pointer, not Player Data** — Player Data is `*(GObj + 0x2C)`.
+   Use `Harness.player_data_ptr(port)`.
+3. **Netplay safety = producer-side only.** Online input edits go inside PAD_Read
+   (`0x8034E2AC` digital / `0x8034E680` analog+stick); the offline hook `0x803775B8` desyncs online.
+4. **Savestate loads wipe runtime code patches** (boot geckos survive; `write_instrs` patches
+   don't). Install runtime patches after `seed_snapshot()`; online, bake geckos into the slot-4 savestate.
+5. **Never hand-trust PPC hex.** Assemble/verify through `gecko_tools.assemble_and_verify`
+   (keystone+capstone) before Dolphin ever runs it — hand-counted branches and the
+   C2-codehandler-eats-last-word bug are the #1 historical time sinks.
 
 ## Common commands
 
 ```bash
-# Verify the harness is alive on this machine (~12s).
-python3 verify_savestate.py
-
-# Verify boot-time gecko install path (~25s).
-python3 verify_inject_gecko.py
-
-# Verify runtime code-patch primitive (Phase 1, ~25s).
-python3 verify_meta_flush.py
-
-# Verify software breakpoints (Phase 2, ~25s).
-python3 verify_bp.py
-
-# Verify the shipped macro reproduces JC-shine on a savestate (~15s).
-python3 verify_d_standalone_v2.py
-
-# Live play: control Marth on P1, gecko auto-JC-shines Fox on P2.
-python3 play_d2.py
-
-# If Dolphin wedges after a failed run:
-pkill -9 -x Dolphin
+python3 verify_savestate.py     # harness alive (~12s). Then: verify_inject_gecko,
+                                # verify_meta_flush, verify_bp, verify_scenario, verify_peer
+python3 verify_d_standalone_v2.py   # shipped JC-shine reproduces on the savestate
+python3 play_d2.py                  # live play: you drive Marth, gecko shines Fox
+pkill -9 -x Dolphin                 # if Dolphin wedges
 ```
 
-Each `verify_*.py` prints `[PASS]` / `[FAIL]` and exits non-zero on failure. There is no test framework beyond these one-shots.
+Machine paths live at the top of `melee_harness.py` (`DOLPHIN_HARDLINK`, `ISO_PATH`, `USER_DIR`).
 
-Hard-coded paths to be aware of in `melee_harness.py`: `DOLPHIN_HARDLINK`, `ISO_PATH`, `USER_DIR`, `GAME_SETTINGS_INI`. Update these if the machine layout changes.
+## Rules
 
-## Key files
-
-| File | What |
-| --- | --- |
-| `melee_harness.py` | `Harness` class. Launch, hook dme, F2 savestate load, MEM1 snapshot/restore, gecko staging. Read its module docstring + `Harness` first. |
-| `scenario.py` | In-game trigger + observation helpers (`force_action_state`, scratch addresses, action-state constants). |
-| `instr_writer.py` | Meta-flush gecko + `write_instrs` / `patch_branch` / `flush_range` / `wait_for_meta_flush_alive`. Phase 1. |
-| `bp.py` | Software BP primitive: `set_breakpoint`, `wait_for_hit`, `read_snapshot`, `write_snapshot`, `continue_`, `remove_breakpoint`. Phase 2. |
-| `candidate_d_standalone_v2.py` | **The shipped macro.** Netplay-safe Frame-1 JC-shine. |
-| `candidate_d2.py` + `play_d2.py` | Same macro packaged for live harness-driven play. |
-| `verify_*.py` | Per-stage smoke tests; `[PASS]` / `[FAIL]` + exit code. |
-| `diag_meta_flush.py`, `diag_cave_dump.py`, `diag_cave_layout.py` | Runtime probes — dump gecko caves, verify install location, etc. |
-| `GALE01r2.ini` | Vendored minimal GameSettings INI; harness uses as base for tmp-user-dir overrides. |
-| `docs/Project_Context.md` | Pre-harness exploration history. |
-| `docs/Project_Addresses.md` | Curated address quick-reference. Starting point, NOT source of truth. |
-| `docs/Gecko_Code_Analysis.md` | Disassembly of reference codes including netplay-safety check pattern. |
-| `docs/Spot_Dodge_Macro.md` | Earlier hardware-PADStatus-hook gecko approach; useful as worked example. |
-| `docs/MACRO_PLAN.md` | Original development plan (mostly executed). |
-| `docs/sessions/2026-05-15.md` | Session log: Candidate B/D attempts; documents the D.1 puzzle. |
-| `gecko-master/`, `slippi-ssbm-asm-master/` | Vendored PowerPC assemblers and the official Slippi codeset. Do not modify. |
-| `dme_experiment/` | Pure-dme exploration (no gecko codes). See its README + FINDINGS.md. |
-| `old&unused/` | Archived iteration history. Gitignored. Browse for worked examples; do not depend on for live code. |
-
-## Conventions
-
-- Hex literals everywhere: `0x...` for both addresses and PPC instruction words.
-- PPC instructions are stored as **big-endian natural ints** in Python lists (e.g. `0x3D80803F` for `lis r12, 0x803F`), then written via `dme.write_word` or `harness.write_words`.
-- When writing gecko codes, `gecko_c2_lines()` in `melee_harness.py` formats them as Dolphin GameSettings INI lines.
-- Verify encoded gecko bodies with capstone (see top of `verify_meta_flush.py`) OR with keystone (see `verify_v2_with_keystone.py`) BEFORE launching Dolphin. Hand-counted branch offsets are the #1 source of "gecko silently doesn't fire" bugs.
-- The `_log()` helper in `melee_harness.py` prefixes timestamps relative to harness start.
+- Search `SSBM memory address sheet/*.csv` before declaring anything undocumented; trust
+  empirical measurement over CSV prose when they conflict.
+- When a macro ships or changes state, update `docs/STATUS.md` — it is the only status ledger.
+- Hex literals `0x...`; PPC words as big-endian ints in Python lists.
+- Don't modify `vendor/`.

@@ -1,3 +1,5 @@
+> **HISTORICAL (archived 2026-07-24).** Superseded by docs/macros/lcancel.md (current state) + WORKFLOW.md (dev loop). Kept for the v1–v3 debugging narrative.
+
 # L-Cancel Macro — Handoff / Next-Agent Jumpstart
 
 **Read this first, then `ONLINE_MACRO_GUIDE.md` + `ONLINE_REFERENCE.md`.** This file
