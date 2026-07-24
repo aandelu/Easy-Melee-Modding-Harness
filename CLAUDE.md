@@ -2,8 +2,8 @@
 
 **Easy Melee** makes Super Smash Bros. Melee (NTSC 1.02) easier for beginners by automating
 complicated tech skill: each deliverable is a **Slippi gecko code** that performs a technique
-(JC-shine, L-cancel, dash-back reversal, wavedash) from simple controller input — offline *and*
-online (netplay-safe). This repo is the development harness: an all-`dme`
+(JC-shine, L-cancel, dash-back reversal, wavedash) from simple controller input — offline, and
+online (netplay-safe) for the macros `docs/STATUS.md` marks online-shipped. This repo is the development harness: an all-`dme`
 (dolphin-memory-engine) closed loop that launches Slippi Dolphin, injects candidate PPC code,
 drives scenarios, and observes results — plus a software debugger (breakpoints) and an
 autonomous Windows netplay peer, so agents can build and test macros end-to-end on their own.
@@ -32,9 +32,10 @@ autonomous Windows netplay peer, so agents can build and test macros end-to-end 
    (`0x8034E2AC` digital / `0x8034E680` analog+stick); the offline hook `0x803775B8` desyncs online.
 4. **Savestate loads wipe runtime code patches** (boot geckos survive; `write_instrs` patches
    don't). Install runtime patches after `seed_snapshot()`; online, bake geckos into the slot-4 savestate.
-5. **Never hand-trust PPC hex.** Assemble/verify through `gecko_tools.assemble_and_verify`
-   (keystone+capstone) before Dolphin ever runs it — hand-counted branches and the
-   C2-codehandler-eats-last-word bug are the #1 historical time sinks.
+5. **Never hand-trust PPC hex.** Keystone-assemble + capstone-verify before Dolphin ever
+   runs it — `gecko_tools.assemble_and_verify` for new payloads (existing `make_*_gecko.py`
+   inline the same check). Hand-counted branches and the C2-codehandler-eats-last-word bug
+   are the #1 historical time sinks.
 
 ## Common commands
 

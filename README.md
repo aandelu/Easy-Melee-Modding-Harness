@@ -2,11 +2,12 @@
 
 **Easy Melee** makes Super Smash Bros. Melee (v1.02 NTSC) easier for beginners by unlocking
 complicated tech skill: each macro is a **Slippi gecko code** that performs a technique
-frame-perfectly from simple controller input — offline and online (netplay-safe, no desyncs).
+frame-perfectly from simple controller input. Macros marked **online-shipped** in
+[`docs/STATUS.md`](docs/STATUS.md) are netplay-safe (no desyncs); others are offline-only.
 
-Shipped so far: frame-1 **JC-shine** reaction, automatic **L-cancel** (offline + online),
-**up-bound wavedash** (offline + online), and a WIP **dash-back reversal** — see
-[`docs/STATUS.md`](docs/STATUS.md) for the live state board.
+Shipped so far: automatic **L-cancel** (offline + online), **up-bound wavedash**
+(offline + online, includes the L-cancel), frame-1 **JC-shine** reaction (offline only),
+and a WIP **dash-back reversal** — [`docs/STATUS.md`](docs/STATUS.md) is the live state board.
 
 This repo is also the thing that *builds* them: an agent-operated development harness.
 Describe the technique you want; the agent uses `dolphin-memory-engine` to launch Slippi

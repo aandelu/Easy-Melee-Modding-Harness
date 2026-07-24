@@ -26,15 +26,19 @@ except ImportError as e:  # keystone is required for assembling, not for disasm
     _KEYSTONE_ERR = e
 
 
-def assemble(src):
-    """Assemble PPC32 big-endian source (labels welcome) -> list of word ints."""
+def assemble(src, addr=0):
+    """Assemble PPC32 big-endian source (labels welcome) -> list of word ints.
+
+    Pass `addr` (the cave address) when the source contains absolute-target
+    branches; keystone resolves them relative to it.
+    """
     if keystone is None:
         raise RuntimeError(
             f"keystone-engine unavailable ({_KEYSTONE_ERR}); "
             "try DYLD_LIBRARY_PATH=/opt/homebrew/lib")
     ks = keystone.Ks(keystone.KS_ARCH_PPC,
                      keystone.KS_MODE_PPC32 | keystone.KS_MODE_BIG_ENDIAN)
-    raw, _ = ks.asm(src)
+    raw, _ = ks.asm(src, addr)
     if len(raw) % 4:
         raise ValueError(f"keystone output length {len(raw)} not word-aligned")
     return [struct.unpack(">I", bytes(raw[i:i + 4]))[0]
@@ -65,7 +69,7 @@ def assemble_and_verify(src, expected=None, addr=0):
     mismatch. Use `expected` when a hand-encoded body already exists; omit it
     when this module IS the source of truth.
     """
-    words = assemble(src)
+    words = assemble(src, addr)
     disasm(words, addr)  # raises on undecodable output
     if expected is not None:
         if len(words) != len(expected):

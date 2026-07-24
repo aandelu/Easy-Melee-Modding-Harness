@@ -44,6 +44,10 @@ KneeBend) and disjoint bytes (`6(r4)` vs `2/3(r4)`), zero conflict, validated li
 contains the L-cancel; the standalone `online_auto_lcancel.gecko.txt` is only for
 L-cancel-without-wavedash setups.
 
+**OFFLINE scratch overlap too:** the offline `auto_lcancel/` cycle counter and the offline
+wavedash `WD_PEND` latch both use scratch `0x803FA470` — don't install both offline macros
+in the same session either.
+
 History: v1–v3 pulsed digital **Z** (global `%7`, then action-state-anchored cadence);
 retired because `+0x894` freezes in hitlag and digital edges could airdodge/re-nair.
 The digital-Z generator and online dev rigs were deleted from HEAD 2026-07-24

@@ -51,20 +51,17 @@ Full narrative: `docs/archive/`.
 
 ## Current status
 
-**OFFLINE SHIPPED.** `candidate_d_standalone_v2.py` is the deliverable;
-`verify_d_standalone_v2.py` passes; live play via `candidate_d2.py` + `play_d2.py`.
-It is **labeled netplay-safe by design** (the scene+port gating pattern, per
-`docs/archive/Gecko_Code_Analysis.md`) but has **NEVER been verified in a live online match** —
-that is the open item.
+**OFFLINE SHIPPED. NOT netplay-safe as-is** (established 2026-07-24 review).
+`candidate_d_standalone_v2.py` is the offline deliverable; `verify_d_standalone_v2.py`
+passes; live play via `candidate_d2.py` + `play_d2.py`. The historical "netplay-safe"
+label was wrong: the shipped body hooks `0x803775B8` — the **consumer-side** pad read,
+which the L-cancel work proved **desyncs** netplay — and contains only a hardcoded P2
+port gate (`cmpwi r24, 1`), **no scene check at all**. **Do not run it online.**
 
 ## Open items
 
-1. **One live online validation match.** The netplay-safe label is a design claim, not a
-   measured result. Two specific things to check before trusting it online:
-   - the hook `0x803775B8` was later established (L-cancel work) to be the **consumer-side**
-     pad read, and consumer-side input edits **desync** netplay — the online-safe producer
-     hooks are `0x8034E2AC`/`0x8034E680` (see [`../REFERENCE.md`](../REFERENCE.md));
-   - the shipped body carries the hardcoded P2 port gate, not the ODB local-port resolve
-     (`*(*(r13-0x49E4)+0)`) the later online macros use.
-   If the live test desyncs, the fix path is a producer-side re-port following the
-   wavedash/L-cancel pattern.
+1. **Online port.** Rebuild on the producer-side hooks (`0x8034E2AC`/`0x8034E680`, see
+   [`../REFERENCE.md`](../REFERENCE.md)) with the standard scene gate (`0x80479D30` ==
+   `0x0208`) and the ODB local-port resolve (`*(*(r13-0x49E4)+0)`), following the
+   wavedash/L-cancel pattern. Reading the *opponent's* action state from the local
+   simulation is rollback-visible and needs its own validation.

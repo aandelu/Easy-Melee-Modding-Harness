@@ -26,11 +26,14 @@ pkill -9 -x Dolphin        # then poll `pgrep -x Dolphin` until empty —
 Health-check with the verify suite before trusting anything. Each prints `[PASS]`/`[FAIL]` and exits non-zero on failure:
 
 ```bash
+# Canonical suite, in order:
 python3 verify_savestate.py      # harness alive: launch, hook, snapshot (~12s)
 python3 verify_inject_gecko.py   # boot-time C2 install path (~25s)
 python3 verify_meta_flush.py     # runtime code-patch primitive (~25s)
 python3 verify_bp.py             # software breakpoints (~25s)
-python3 verify_d_standalone_v2.py  # shipped macro still reproduces (~15s)
+python3 verify_scenario.py       # full iteration loop: trigger + baseline (~12s)
+python3 verify_peer.py           # Windows netplay peer reachable (online work only)
+python3 verify_d_standalone_v2.py  # shipped JC-shine still reproduces (~15s)
 ```
 
 If `verify_savestate.py` and `verify_bp.py` both pass, the discovery loop below is available. Prefix any run that assembles code with `DYLD_LIBRARY_PATH=/opt/homebrew/lib` (keystone needs it on this machine).
@@ -188,7 +191,7 @@ h.enter_online(peer=Peer())      # F4 + Enter locally; auto-drives the Windows p
 
 Package the proven cave with `gecko_c2_lines` (in `melee_harness.py`) — it formats Dolphin GameSettings INI / Slippi Manager lines. Write a generator script per macro (`make_*_gecko.py` — `make_wavedash_gecko.py`, `make_online_analog_lcancel_gecko.py`, and `make_cactuar_dash_gecko.py` are the templates) that builds, verifies, and prints the gecko, with a header stating what it does, the hooks, and how it was validated. For online macros, emitting a RAW (06+04) form alongside the C2 form is worthwhile — it reproduces the exact validated memory state.
 
-**Mandatory: assemble with keystone and capstone-verify before Dolphin ever sees the bytes.** Hand-counted branch offsets are the #1 source of "gecko silently doesn't fire". Use the shared `assemble_and_verify` helper in `gecko_tools.py` — that is the required path for every payload, dev or ship (`python3 gecko_tools.py` runs its self-check; `check_c2_body` enforces the C2 last-word padding rule). Disassemble the full payload and eyeball that branches land in-cave and the displaced original is present.
+**Mandatory: assemble with keystone and capstone-verify before Dolphin ever sees the bytes.** Hand-counted branch offsets are the #1 source of "gecko silently doesn't fire". New payloads go through the shared `assemble_and_verify` helper in `gecko_tools.py` (`python3 gecko_tools.py` runs its self-check; `check_c2_body` enforces the C2 last-word padding rule); the three existing `make_*_gecko.py` generators predate it and inline the equivalent keystone+capstone check — both satisfy the rule. Disassemble the full payload and eyeball that branches land in-cave and the displaced original is present.
 
 **The C2 codehandler overwrites the body's last word** with its branch-back — it does not append. A C2 body must therefore end with a throwaway word; `gecko_c2_lines` reserves the trailing slot automatically. Never hand-roll a C2 that ends on a needed instruction (the displaced original is the classic casualty). Prove a C2 cave kept its displaced word with `verify_codehandler_displaced.py`.
 
@@ -225,7 +228,7 @@ For real (non-harness) play the user just adds and enables the gecko — no save
 
 ### Ship checklist
 
-- [ ] Payload assembled via `gecko_tools.assemble_and_verify` (keystone + capstone), branches land in-cave, displaced original present
+- [ ] Payload keystone-assembled + capstone-verified (`gecko_tools.assemble_and_verify`, or the equivalent inline check in the existing generators); branches land in-cave, displaced original present
 - [ ] C2 body ends on a throwaway word; `verify_codehandler_displaced.py`-style check if in doubt
 - [ ] Real install path tested: user-style install, hook reads as a branch
 - [ ] Offline: `verify_*.py` passes. Online: slot-4 re-baked with the final gecko, F4 entry verified, user confirms no desync

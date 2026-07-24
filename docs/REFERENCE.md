@@ -101,7 +101,8 @@ L-cancels in this Slippi build.
 | `+1` | `ODB_ONLINE_PLAYER_INDEX` (u8) |
 | `+2` | `ODB_INPUT_SOURCE_INDEX` (u8) — the local input's *stack slot*, **NOT the controller port** (observed 0 even when local player was P2). Do not use for the GObj lookup. |
 | `+3` | `ODB_FRAME` (u32) |
-| further | `ODB_DELAY_FRAMES` (u8, the online input delay) — full layout in `Online.s` |
+| `+0x21` | `ODB_DELAY_FRAMES` (u8, the online input delay) — read by the wavedash cave (`lbz rX, 0x21(odb)`) |
+| further | full layout in `vendor/slippi-ssbm-asm-master/Online/Online.s` |
 
 **Local player's port at runtime: `port = *(odb + 0)`**, then the §1.3 GObj
 lookup. The local port varies by host/guest (observed both 0 and 1 across
@@ -214,7 +215,7 @@ layout** from the 32-bit `0x804C1FAC` region (§1.6).
 
 ### 2.4 PAD_Read internals (producer side)
 
-Mapped by `disasm_lcancel_analog.py`:
+Mapped by the (since-deleted) `disasm_lcancel_analog.py` probe:
 
 - **`0x8034E220`–`0x8034E2A4`**: builds analog bytes `6/7/8/9(r4)` from raw SI in
   `r5`, then the **analog→digital trigger conversion** at ~`0x8034E244`:
@@ -345,8 +346,9 @@ iw.META_FLUSH_ORIG, 'x')`; the canonical body lives in
 
 Confirmed non-functional on Slippi Dolphin, even with `Core.CPUCore = 0` (pure
 interpreter): the emulated CPU's instruction fetch never observes dme writes
-without an explicit `dcbf`+`icbi` on the affected lines. Diagnostic:
-`old&unused/diag_inject_no_savestate.py`. Don't retry this.
+without an explicit `dcbf`+`icbi` on the affected lines. (Proved by the
+`diag_inject_no_savestate.py` diagnostic — deleted 2026-07-24, in the Desktop
+archive tarball.) Don't retry this.
 
 ### 3.4 Savestate / wipe rules
 
@@ -391,14 +393,17 @@ branch and is immune. Verify any built C2's cave with
 
 | Address | What |
 | --- | --- |
-| `0x803FA3E8` | `DEFAULT_CAVE` (debug-menu tables region, `0x1F04` bytes, safe to clobber). The meta-flush body occupies its first ~120 bytes — start scratch/small caves at `+0x200`. Only `0x58` bytes below the control plane: a **>22-word cave collides with it** and `flush_range` then corrupts the cave → crash. |
+| `0x803FA3E8` | `DEFAULT_CAVE` (debug-menu tables region, `0x1F04` bytes, safe to clobber). Only `0x58` bytes (22 words) sit below the control plane — a **>22-word cave here collides with it** and `flush_range` then corrupts the cave → crash. Start scratch/small caves at `+0x200`. (The meta-flush body itself installs as a boot C2 in the codehandler's own cave, NOT here.) |
+| `0x803FA424` | JC-shine state counter (`candidate_d_standalone_v2.py`) |
 | `0x803FA440`–`0x803FA44C` | **meta-flush control plane — never overlap** (§3.2) |
+| `0x803FA470` | scratch shared by TWO offline macros: the `auto_lcancel/` cycle counter AND the offline wavedash `WD_PEND` latch — do not install both offline macros together (see `docs/macros/`) |
 | `0x803FA600` | **recommended cave** for anything big or shared with online |
+| `0x803FA800` | shipped wavedash digital-button cave (`make_wavedash_gecko.py`) |
 | `0x803FC420` (`0x17FC`), `0x8022887C` (`0xB0`), `0x8032C848` (`0x38`), `0x8032DCB0` (`0x10C`), `0x8032ED8C` (`0x104`), `0x80393A5C` (`0x1B4`), `0x804D36A0` (`0x60`) | other free regions (more debug tables, unused code functions, develop-mode color table) — `Free_Memory.csv` |
 
 Note: the boot codehandler allocates its OWN cave for Path-1 geckos — it does
-not necessarily use `DEFAULT_CAVE` (`diag_cave_layout.py` finds where a gecko
-actually landed).
+not necessarily use `DEFAULT_CAVE`. (The `diag_cave_layout.py` probe that
+discovered a gecko's actual landing spot was deleted 2026-07-24 — git history.)
 
 ---
 

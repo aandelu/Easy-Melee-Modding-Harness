@@ -15,11 +15,11 @@ Scripts (in dependency order):
 - `exp02_button_planes.py` — probe which "button plane" (PD+0x65C global
   0x804C1FAC, raw PADStatus...) Fox's engine logic actually reacts to when
   we write from dme.
-- `exp03_dme_shine.py` — try to make Fox shine using only dme writes.
-- `exp04_dme_jumpsquat.py` — try to reproduce the "3 frames KneeBend"
+- `exp03_find_padstatus.py` — try to make Fox shine using only dme writes.
+- `exp04_brute_force_inputs.py` — try to reproduce the "3 frames KneeBend"
   finding via dme button writes.
 - `exp05_dme_jc_shine.py` — try a JC-shine via dme writes only.
-- `exp06_reactive_trigger.py` — poll Marth's action state, react with
+- `exp06_reactive_jc_shine.py` — poll Marth's action state, react with
   Fox's shine input as soon as Catch (0xD4) is observed.
 
 Each script writes per-frame logs into a sibling `runs/` folder for offline

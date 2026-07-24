@@ -10,7 +10,7 @@ When anything ships or changes state, **edit this file** — nothing else needs 
 | Macro | Offline | Online | Shipped artifact | Generator | Verify/test | Open items |
 | --- | --- | --- | --- | --- | --- | --- |
 | **JC-shine** (Fox auto jump-cancel shine when Marth grabs) | ✅ SHIPPED | ❌ **NOT netplay-safe as-is** (found 2026-07-24: consumer-side `0x803775B8` hook, no scene gate — would desync; the old "netplay-safe" label was wrong) | `candidate_d_standalone_v2.py` (paste into Slippi user INI) | (hand-built, see file) | `verify_d_standalone_v2.py`, live play `play_d2.py` | port to producer-side hooks (`docs/macros/jc_shine.md`) |
-| **Auto L-cancel** | ✅ SHIPPED (`auto_lcancel/`) | ✅ SHIPPED (analog-L pulse) | `geckos → online_auto_lcancel.gecko.txt`; **also folded into the wavedash gecko** | `make_online_analog_lcancel_gecko.py` | `auto_lcancel/` suite | none |
+| **Auto L-cancel** | ✅ SHIPPED (`auto_lcancel/`) | ✅ SHIPPED (analog-L pulse) | `online_auto_lcancel.gecko.txt`; **also folded into the wavedash gecko** | `make_online_analog_lcancel_gecko.py` | `auto_lcancel/` suite | none |
 | **Cactuar dash** (auto dash-back reversal) | ✅ validated | ⚠️ validated via runtime injection (65/65, no desync) — **shipped C2 gecko silently fails** in real Slippi (user-code append-space limit) | `online_cactuar_dash.raw.gecko.txt` (the identified fix, never user-tested) | `make_cactuar_dash_gecko.py` | (dev scripts deleted; regenerate from generator) | ship+test the raw/merged form; delay-2 validation; ~1/49 TurnRun slip |
 | **Up-bound wavedash** | ✅ SHIPPED | ✅ SHIPPED, frame-perfect at delay 1 (includes the L-cancel in its cave) | `online_wavedash.gecko.txt` | `make_wavedash_gecko.py` | `play_wavedash_offline.py`, `play_wavedash_monitor.py`, `attach_observe_wavedash.py` | user delay-2 test (expect Fox ~1f late — the floor); real-stick up-check; does *holding* up auto-repeat? |
 | **Windows netplay peer** (autonomous 2nd machine) | — | ✅ SHIPPED | `peer.py` + `peer/` | — | `verify_peer.py` | desync detection is still eyeball-only |
@@ -27,7 +27,7 @@ The Slippi Launcher updated **2026-07-02**, which broke the harness environment:
 1. ~~`Dolphin` hardlink wiped~~ — **recreated 2026-07-24** (`ln "Slippi Dolphin" Dolphin` in the app's MacOS/ dir; redo after every Slippi update).
 2. **All savestates are stale** (`StateSaves/GALE01.s0*` are May–Jun; savestates are version-locked to the build). Re-create under the current build: slot 2 = offline Marth-vs-Fox scenario; slot 4 = online-entry state with meta-flush baked (see WORKFLOW.md "Ship" chapter).
 3. **Reboot the Mac once**: an unkillable half-exited `Dolphin --version` process (kernel `UE` state) is wedged; dme attaches to that corpse instead of a live Dolphin until it's cleared.
-4. Then run the health suite: `verify_savestate.py` → `verify_inject_gecko.py` → `verify_meta_flush.py` → `verify_bp.py` → `verify_peer.py`.
+4. Then run the health suite (canonical list in `WORKFLOW.md`): `verify_savestate.py` → `verify_inject_gecko.py` → `verify_meta_flush.py` → `verify_bp.py` → `verify_scenario.py` → `verify_peer.py`.
 
 ## Next-work queue
 

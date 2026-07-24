@@ -57,6 +57,10 @@ contains the auto-L-cancel**: since 2026-06-05 the analog-L pulse is folded into
 `6(r4)`, KneeBend writes `2/3(r4)` — disjoint). Validated live: 12 wavedashes + 19/0
 L-cancels in one match. See [`lcancel.md`](lcancel.md).
 
+**OFFLINE scratch overlap too:** the offline wavedash `WD_PEND` latch and the
+`auto_lcancel/` cycle counter both use scratch `0x803FA470` — don't install both offline
+macros in the same session either.
+
 ## Files
 
 | File | Role |
