@@ -20,18 +20,20 @@ When anything ships or changes state, **edit this file** — nothing else needs 
 **Never enable the standalone L-cancel gecko and the wavedash gecko together** — both hook `0x8034E680`.
 The wavedash gecko already contains the auto-L-cancel. Ship one or the other, not both.
 
-## Environment restore needed (found 2026-07-24, after ~7 weeks idle)
+## Environment: RESTORED 2026-07-24
 
-The Slippi Launcher updated **2026-07-02**, which broke the harness environment:
+The 2026-07-02 Slippi update had broken the environment; all fixed 2026-07-24:
+hardlink recreated (`ln "Slippi Dolphin" Dolphin` — redo after every Slippi update),
+Mac rebooted (cleared the unkillable `Dolphin --version` corpse), savestates 2 & 4
+re-created under the current build.
 
-1. ~~`Dolphin` hardlink wiped~~ — **recreated 2026-07-24** (`ln "Slippi Dolphin" Dolphin` in the app's MacOS/ dir; redo after every Slippi update).
-2. **All savestates are stale** (`StateSaves/GALE01.s0*` are May–Jun; savestates are version-locked to the build). Re-create under the current build: slot 2 = offline Marth-vs-Fox scenario; slot 4 = online-entry state with meta-flush baked (see WORKFLOW.md "Ship" chapter).
-3. **Reboot the Mac once**: an unkillable half-exited `Dolphin --version` process (kernel `UE` state) is wedged; dme attaches to that corpse instead of a live Dolphin until it's cleared.
-4. Then run the health suite (canonical list in `WORKFLOW.md`): `verify_savestate.py` → `verify_inject_gecko.py` → `verify_meta_flush.py` → `verify_bp.py` → `verify_scenario.py` → `verify_peer.py`.
+**Verify suite 2026-07-24:** savestate ✅ inject_gecko ✅ meta_flush ✅ bp ✅ scenario ✅
+d_standalone_v2 ✅ (3/3 JC-shines). peer ❌ — Windows machine unreachable
+(`No route to host` to 192.168.68.87); power it on and re-run `verify_peer.py` before any online work.
 
 ## Next-work queue
 
-1. Environment restore (above), then re-run the verify suite.
+1. Power on the Windows peer and pass `verify_peer.py` (only unverified harness piece).
 2. Wavedash pending validations (user + peer): delay-2, real-stick up-check, hold-repeat.
 3. Cactuar dash: ship the raw/merged gecko through the *real* user install path and validate.
 4. JC-shine online port: rebuild on the producer-side hooks (the shipped version is offline-only in truth — see the table).
