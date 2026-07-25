@@ -1,6 +1,6 @@
 # STATUS — the Easy Melee state board
 
-**Last updated: 2026-07-24** (repo cleanup + rename to Easy-Melee-Modding-Harness).
+**Last updated: 2026-07-25** (verify suite 7/7 PASS — harness fully operational).
 
 This is the single source of truth for *what's shipped, what's pending, and what to work on next*.
 When anything ships or changes state, **edit this file** — nothing else needs to track status.
@@ -27,16 +27,14 @@ hardlink recreated (`ln "Slippi Dolphin" Dolphin` — redo after every Slippi up
 Mac rebooted (cleared the unkillable `Dolphin --version` corpse), savestates 2 & 4
 re-created under the current build.
 
-**Verify suite 2026-07-24:** savestate ✅ inject_gecko ✅ meta_flush ✅ bp ✅ scenario ✅
-d_standalone_v2 ✅ (3/3 JC-shines). peer ❌ — Windows machine unreachable
-(`No route to host` to 192.168.68.87); power it on and re-run `verify_peer.py` before any online work.
+**Verify suite 2026-07-25: 7/7 PASS** — savestate, inject_gecko, meta_flush, bp, scenario,
+peer (online match reached with zero physical Windows interaction), d_standalone_v2 (3/3 JC-shines).
+The harness is fully operational, offline and online.
 
 ## Next-work queue
-
-1. Power on the Windows peer and pass `verify_peer.py` (only unverified harness piece).
-2. Wavedash pending validations (user + peer): delay-2, real-stick up-check, hold-repeat.
-3. Cactuar dash: ship the raw/merged gecko through the *real* user install path and validate.
-4. JC-shine online port: rebuild on the producer-side hooks (the shipped version is offline-only in truth — see the table).
+1. Wavedash pending validations (user + peer): delay-2, real-stick up-check, hold-repeat.
+2. Cactuar dash: ship the raw/merged gecko through the *real* user install path and validate.
+3. JC-shine online port: rebuild on the producer-side hooks (the shipped version is offline-only in truth — see the table).
 
 ## Backlog (ideas with known value, not started)
 
