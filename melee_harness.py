@@ -627,9 +627,7 @@ class Harness:
 
     def enter_online(self, peer=None, max_attempts: int = 12,
                      attempt_window_s: float = 9.0,
-                     confirm_samples: int = 21,
-                     restart_peer_after=None,
-                     restart_recovery_s: float = 40.0) -> bool:
+                     confirm_samples: int = 21) -> bool:
         """Drive this Mac's F4+Enter in lockstep with the Windows peer's
         F1+Enter and retry until the local scene reads SCENE_ONLINE_IN_GAME
         (0x0208).
@@ -651,45 +649,23 @@ class Harness:
         that would race the task's launch and could start two Slippi instances.
         On a cold peer the first confirmed enter blocks while it boots.
 
-        Auto-recovery: if `peer` is given and we still aren't online after
-        `restart_peer_after` attempts (default max_attempts // 2) AND the peer is
-        not reporting healthy, force-restart its Slippi once (peer.restart(),
-        which blocks until the window is back). If the restart can't be confirmed,
-        fall back to waiting `restart_recovery_s`. Pass restart_peer_after=0 to
-        disable. (A peer that reports healthy is never restarted -- that wouldn't
-        fix a savestate/network problem.)
+        Retries relaunch the peer's Slippi fresh each attempt (peer.restart(),
+        which blocks until its window is back). Sending F1 into a live
+        mid-search Dolphin crash-loops it -- observed 2026-07-25: the peer kept
+        reporting healthy keystroke delivery while its Dolphin died and
+        relaunched four times, so a "healthy" report must not skip the restart.
         """
-        if peer is not None and restart_peer_after is None:
-            restart_peer_after = max(1, max_attempts // 2)
-        peer_restarted = False
         last_peer_ok = None   # peer's self-reported status from its last `enter`
 
         for attempt in range(1, max_attempts + 1):
-            # Auto-recovery: a wedged peer (Slippi crashed / hotkeys dead) keeps
-            # us out of 0x0208 forever; restart its Slippi once and let it boot.
-            # Only restart if the peer is NOT reporting healthy -- if it reports
-            # ok and we're still out, the fault is savestate/timing/network and a
-            # restart just wastes time.
-            if (peer is not None and not peer_restarted and restart_peer_after
-                    and attempt == restart_peer_after + 1):
-                if last_peer_ok is True:
-                    _log("enter_online: peer reports healthy but we're not in a "
-                         "match -- likely savestate/timing/network, NOT a wedge; "
-                         "skipping the restart")
-                else:
-                    _log(f"enter_online: not online after {restart_peer_after} "
-                         f"attempts and peer is not healthy -- restarting its "
-                         f"Slippi (recovery)")
-                    restart_ok = None
-                    try:
-                        res = peer.restart()  # confirmed: blocks until back up
-                        restart_ok = res[0] if isinstance(res, tuple) else None
-                    except Exception as e:
-                        _log(f"enter_online: peer.restart failed: {e}")
-                    if restart_ok is None:
-                        # unconfirmed -> give it a fixed window to come back
-                        time.sleep(restart_recovery_s)
-                peer_restarted = True
+            if peer is not None and attempt > 1:
+                # Never F1 into the still-searching Dolphin from the failed
+                # attempt -- relaunch so the savestate loads into a fresh boot
+                # (the state both verified cold-start passes went through).
+                try:
+                    peer.restart()  # confirmed: blocks until the window is back
+                except Exception as e:
+                    _log(f"enter_online: peer.restart failed: {e}")
 
             if peer is not None:
                 # Fire the Windows side first so it is already searching when our
