@@ -13,7 +13,7 @@ When anything ships or changes state, **edit this file** — nothing else needs 
 | **Auto L-cancel** | ✅ SHIPPED (`auto_lcancel/`) | ✅ SHIPPED (analog-L pulse) | `online_auto_lcancel.gecko.txt`; **also folded into the wavedash gecko** | `make_online_analog_lcancel_gecko.py` | `auto_lcancel/` suite | none |
 | **Cactuar dash** (auto dash-back reversal) | ✅ validated | ⚠️ validated via runtime injection (65/65, no desync) — **shipped C2 gecko silently fails** in real Slippi (user-code append-space limit) | `online_cactuar_dash.raw.gecko.txt` (the identified fix, never user-tested) | `make_cactuar_dash_gecko.py` | (dev scripts deleted; regenerate from generator) | ship+test the raw/merged form; delay-2 validation; ~1/49 TurnRun slip |
 | **Up-bound wavedash** | ✅ SHIPPED | ✅ SHIPPED, frame-perfect at delay 1 (includes the L-cancel in its cave) | `online_wavedash.gecko.txt` | `make_wavedash_gecko.py` | `play_wavedash_offline.py`, `play_wavedash_monitor.py`, `attach_observe_wavedash.py` | user delay-2 test (expect Fox ~1f late — the floor); real-stick up-check; does *holding* up auto-repeat? |
-| **Windows netplay peer** (autonomous 2nd machine) | — | ✅ SHIPPED | `peer.py` + `peer/` | — | `verify_peer.py` | desync detection is still eyeball-only |
+| **Windows netplay peer** (autonomous 2nd machine) | — | ✅ SHIPPED | `peer.py` + `peer/` | — | `verify_peer.py` | desync detection is still eyeball-only; flaky retry path (2026-07-25, ~1 in 3): if attempt 1 misses, retrying F1 into a mid-search Dolphin crash-loops it — peer should kill+relaunch Dolphin per retry |
 
 ### ⚠️ Coexistence rule (deploy-time, critical)
 
