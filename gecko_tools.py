@@ -98,6 +98,36 @@ def check_c2_body(words):
             "the codehandler will EAT it (branch-back overwrite)")
 
 
+def counter_bump_asm(addr, rbase=11, rtmp=12):
+    """PPC source that increments the 32-bit word at `addr` -- a per-clause
+    in-cave counter. Sprinkle one after each gate clause and read them back
+    with `read_counters` to see exactly which clause rejects.
+
+    Twice now (wavedash 2026-06, ASDI 2026-07) per-clause counters settled in
+    ONE run what multiple Python-observer theories got wrong -- instrument
+    first, theorize second (WORKFLOW.md §2.1).
+
+    Clobbers rbase and rtmp -- pick registers your payload has already saved
+    (or that the displaced original frees). r0 is rejected: an rA field of 0
+    is the literal 0, not r0 (REFERENCE.md §4).
+    """
+    if 0 in (rbase, rtmp) or rbase == rtmp:
+        raise ValueError("rbase/rtmp must be distinct and non-r0 "
+                         "(rA=0 means literal 0 -- REFERENCE.md §4)")
+    return (f"lis {rbase}, 0x{(addr >> 16) & 0xFFFF:X}\n"
+            f"ori {rbase}, {rbase}, 0x{addr & 0xFFFF:X}\n"
+            f"lwz {rtmp}, 0({rbase})\n"
+            f"addi {rtmp}, {rtmp}, 1\n"
+            f"stw {rtmp}, 0({rbase})\n")
+
+
+def read_counters(harness, base_addr, names):
+    """Read consecutive counter words laid out from base_addr -> {name: count}.
+    Pair with counter_bump_asm(base_addr + 4*i) per clause."""
+    return {n: harness.read_word(base_addr + 4 * i)
+            for i, n in enumerate(names)}
+
+
 if __name__ == "__main__":
     # Self-check: known encoding + a deliberate mismatch must be caught.
     src = "lis 12, 0x803F\nori 12, 12, 0xA424\nlbz 9, 0(12)\n"
@@ -114,4 +144,11 @@ if __name__ == "__main__":
     except ValueError:
         pass
     check_c2_body([0x540084BE, 0x60000000, 0x4E800020, 0x00000000])
+    cw = assemble(counter_bump_asm(0x803FAA00))
+    assert len(cw) == 5 and disasm(cw)[3].startswith("addi"), cw
+    try:
+        counter_bump_asm(0x803FAA00, rbase=0)
+        raise SystemExit("FAIL: r0 base not rejected")
+    except ValueError:
+        pass
     print("[PASS] gecko_tools self-check")

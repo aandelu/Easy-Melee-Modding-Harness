@@ -57,10 +57,17 @@ Scene IDs (`getMinorMajor` value; constants in `Common.s` / `Online/Online.s`):
 ```
 
 All Player-Data-relative offsets below need this double-indirection. From Python
-use `Harness.player_data_ptr(port)`; in a cave do it by hand and **MEM1-check
+use `Harness.player_data_ptr(port)` — **the Python API is 1-indexed (P1=1)**,
+while the raw math above is 0-indexed; don't mix the conventions (`entity_ptr(0)`
+raises). In a cave do it by hand and **MEM1-check
 every pointer before dereferencing** (`srwi tmp,ptr,24; cmplwi tmp,0x80; bne
 bail`) — during scene transitions and rollback the pointers hold garbage and an
 unchecked deref crashes Dolphin.
+
+**Re-resolve Player Data every frame you observe.** A death + respawn moves the
+struct; a pointer cached at startup silently reads the wrong (or freed) memory
+after the first KO (contaminated an ASDI run, 2026-07-26). `observer.players(h)`
+does this correctly.
 
 > **Two distinct `0x2C` facts — do not merge them.**
 > `GObj + 0x2C` = pointer to Player Data (`Entity_Data_Offsets.csv`).
@@ -75,11 +82,17 @@ Player Data offsets:
 | `+0x0C` | port ID (byte, 0-indexed) | compare against ODB local index for the netplay gate (§2.6) |
 | `+0x10` | action state ID (word) | mask low 16 bits |
 | `+0x2C` | facing direction (float ±1) | see warning above |
+| `+0x8C` / `+0x90` | attack-induced knockback velocity X / Y (floats) | `kb_y ≤ ~3.0` is the ASDI-floorhug reach (`docs/macros/asdi_floorhug.md`) |
+| `+0xB4` | Y position (float) | frozen during hitlag — but only to ~1e-4, see §2.5 |
+| `+0xE0` | ground/air flag (word: 0=grounded, 1=airborne) | during hitlag an *aerial attacker* is also 1 — use `+0x2340` to tell victim from attacker |
+| `+0x63C` | engine-processed C-stick Y (float −1..1) | the observable that proves a c-stick injection reached the engine |
 | `+0x650` | processed analog trigger | what the engine / L-cancel check reads |
 | `+0x65C` | processed buttons (post-conversion) | 32-bit; what UnclePunch-style macros read |
 | `+0x680` | L/R press timer ("frames since L/R pressed") | tracks **L/R only, NOT Z or light-analog** — misleading observable for Z-cancels (stays 255 while a Z-cancel works) |
 | `+0x894` | Action State Frame Counter (float, resets to `1.0` on each new state) | **FREEZES during hitlag.** Rollback-safe (it's game state). `+0x3E8` is the *Sub*-Action State Frame Counter — a different float; don't confuse. |
+| `+0x834` | last-landed Y position (float) | with `+0xB4`: near-ground check — real float compare, never exact (§2.5) |
 | `+0x195C` | hitlag counter (float, counts down; `!= 0` ⇒ in hitlag) | `+0x2219 & 0x04` is an alternate hitlag flag |
+| `+0x2340` | hitstun counter (float, frames remaining) | **0 on the attacker even during its hitlag** — the only clean victim/attacker discriminator (43/43 attacker rows measured) |
 | `+0x25FF` | `LCancelStatus` (u8: 0=none, 1=success, 2=fail) | the direct per-landing L-cancel observable (from Slippi `Recording.s`); prefer over landing-state duration or `+0x680` |
 
 **Float→int decode without FPU** (for `+0x894`, `+0x195C`, any integer-valued
@@ -171,7 +184,7 @@ rollback-safe.
 
 | Environment | Input type | Hook | Entry state | Displaced original | Branch-back |
 | --- | --- | --- | --- | --- | --- |
-| OFFLINE | anything | `0x803775B8` (`HSD_PadRead`, consumer) | `r24` = 0-indexed port, `r25` = pad struct ptr | `lhz r0,0(r25)` = `0xA0190000` | `0x803775BC` |
+| OFFLINE | anything | `0x803775B8` (`HSD_PadRead`, consumer) | `r24` = 0-indexed port, `r25` = pad struct ptr — ⚠️ **the player `r24` indexes is NOT the character whose pad is `r25`** (measured 2026-07-26: 61/137 gated injections landed on the attacker). Bound-check `r24`, gate on the pad-owner's *state* only, and never port `r24` indexing online (`docs/macros/asdi_floorhug.md`) | `lhz r0,0(r25)` = `0xA0190000` | `0x803775BC` |
 | ONLINE | digital buttons | `0x8034E2AC` (producer, "Altimor's slot") | `r0` = raw SI word, button bits in high 16 → `oris r0,r0,BIT` sets BIT | `rlwinm r0,r0,0x10,0x12,0x1f` = `0x540084BE` | `0x8034E2B0` |
 | ONLINE | analog trigger / stick | `0x8034E680` (producer, post-calibration) | `r3` = calib ptr, `r4` = PADStatus → `stb val, N(r4)` | `lbz r0,7(r3)` = `0x88030007` | `0x8034E684` |
 
@@ -183,6 +196,10 @@ you touch; a displaced original that clobbers `r0` frees `r0` for your logic.
 button word, so `oris` there can't set them. Analog/stick values go in at
 `0x8034E680`, after the per-port calibration finalizes them and before the
 builder returns.
+
+At `0x803775B8` (offline hook), pad bytes `2..9(r25)` are all consumed
+**downstream** (`0x803775C0`–`0x803775F8`) — a byte write at the hook
+propagates to every consumer; only `0xA(r25)` is read before it.
 
 ### 2.3 Pad struct layout + button bits
 
@@ -229,7 +246,9 @@ Mapped by the (since-deleted) `disasm_lcancel_analog.py` probe:
   are filled; a per-port calibration pass (`0x8034E4B4`–`0x8034E698`, table at
   `0x804A89B0 + port*0xC`) clamps/offsets each axis. Analog L `6(r4)` is
   finalized at `0x8034E67C`, R `7(r4)` at `0x8034E698` — hence the `0x8034E680`
-  hook. Online this routine runs for the **local** controller only (remote
+  hook. C-stick bytes `4/5(r4)` finalize at `0x8034E604`/`0x8034E660`, both
+  **upstream** of that hook — so a c-stick write at `0x8034E680` survives to
+  the transmitted pad (validated live 2026-07-25); only R lands after it. Online this routine runs for the **local** controller only (remote
   inputs arrive via EXI), so a hook here edits only the transmitted local input —
   no per-port gate needed on the *injection*; gate on the local player's *state*
   via the ODB.
@@ -258,6 +277,13 @@ that must survive hitlag (e.g. on aerials that connect) must anchor to the
 **global** counter, not `+0x894`. Game mechanic: a trigger/Z press on any hitlag
 frame is re-applied through the rest of hitlag and stays active ~6 frames after
 it ends.
+
+Hitlag length is `3 + dmg/3` frames, capped at 20 (PlCo constants
+`0xA174`–`0xA184`; electric ×1.5, crouching victim ×0.667). Position (`+0xB4`)
+is also frozen during hitlag — **but only to ~1e-4**: never gate on exact float
+equality (a bit-exact `y == land_y` compare rejected 100% of real hits in the
+ASDI probe; log floats with their raw bits — `observer.ffmt` — before inferring
+equality).
 
 ### 2.6 Netplay-safety gate pattern
 
@@ -315,6 +341,14 @@ reads the INI at boot, copies each body into its own code cave, and flushes the
 icache. **Must be called before `launch()`.** Survives savestate loads offline
 (the codehandler reinstalls post-load) — but see the F4 wipe rule in §3.4.
 Format INI lines with `gecko_c2_lines(hook, logic, displaced, name)`.
+
+**Precondition: stage the meta-flush gecko too, first**
+(`instr_writer.install_meta_flush(h)` before your `install_gecko_c2` calls).
+Without it, `seed_snapshot()`'s save+overlay+load round-trip deterministically
+wedges the CPU — even for a 2-instruction no-op payload — and the symptom is a
+generic `TimeoutError: CPU never started ticking` that looks like a payload
+crash (bisected in `bisect_asdi.py`, 2026-07-26; mechanism unexplained). The
+harness raises a self-explanatory error if you forget.
 
 **Size limit:** the harness's minimal boot codehandler cave is small — a large
 C2 (~50 words) silently fails to install (hook stays vanilla); Altimor-sized
@@ -465,6 +499,10 @@ discovered a gecko's actual landing spot was deleted 2026-07-24 — git history.
   `dme.hook()` time makes dme attach to the dying/stale process and every read
   fails. Always `pkill -9 -x Dolphin` and **poll `pgrep -x Dolphin` until
   empty** before launching.
+- **Kill your own harness Python between runs, not just Dolphin.** A
+  backgrounded probe still on its timer holds the dme attach and the next
+  `dme.hook()` fails; `pkill -9 -x Dolphin` does not touch it. `hook_dme()`
+  detects a live prior holder via a pid lockfile and names it in the error.
 - **`dme.hook()` must run on the main thread** — wrapped in a daemon thread it
   returns but `is_hooked()` stays False.
 - **One Python process, launch to observe.** Re-attaching dme from a *new*

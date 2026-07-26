@@ -139,9 +139,15 @@ by the emulated CPU, which motivated the meta-flush design — is recorded in `d
 
 ```python
 from melee_harness import Harness
+from instr_writer import install_meta_flush
 from scenario import run_grab_trial, classify_trial, WAIT
 
 h = Harness()
+
+# ALWAYS stage the meta-flush gecko first when staging any gecko --
+# seed_snapshot()'s save+overlay+load round-trip wedges the CPU without it
+# (gotcha 19). The harness raises if you forget.
+install_meta_flush(h)
 
 # Stage the candidate macro BEFORE launch.
 # Slippi's bootloader installs it at boot with proper icache flush.
@@ -291,6 +297,9 @@ For a complete inventory grep `vendor/slippi-ssbm-asm-master/**/*.asm` for `# Ad
 16. **The meta-flush hook is at `0x803775C0`.** Don't reuse that hook for your own gecko/BP. The per-frame pad-read at `0x803775B8` is the obvious alternative.
 17. **Runtime patches don't survive `restore_snapshot()`.** Snapshot is taken before runtime patches exist; the 24 MB write-back wipes them. Either re-install after each restore, or install before `seed_snapshot`. Boot-time geckos survive because they're in MEM1 at snapshot time.
 18. **BP spin halts the entire PPC core.** Dolphin's other threads (audio, graphics, window) keep running, so the application stays responsive — but on a Slippi netplay session this would desync. The BP primitive is dev/offline only.
+19. **Any staged gecko requires the meta-flush gecko staged too** (`instr_writer.install_meta_flush(h)`, first). `seed_snapshot()`'s save+overlay+load round-trip deterministically wedges the CPU otherwise — even for a 2-instruction no-op — with a generic "CPU never started ticking" TimeoutError that looks like a payload crash (bisected in `bisect_asdi.py`, 2026-07-26; mechanism unexplained). `seed_snapshot` now raises if you forget.
+20. **A prior harness Python holds the dme attach.** `pkill -9 -x Dolphin` kills Dolphin but not your own backgrounded probe script; the next `dme.hook()` then fails. Kill your own Python between runs; `hook_dme()` detects a live prior holder via a pid lockfile and names it in the error.
+21. **Harness port arguments are 1-indexed** (P1=1). The raw `0x80453130 + port*0xE90` math in REFERENCE.md §1.3 is 0-indexed — mixing the conventions tracked the wrong player for a full launch cycle in the ASDI session. `entity_ptr(0)` raises.
 
 ## 8. Limitations / open work
 

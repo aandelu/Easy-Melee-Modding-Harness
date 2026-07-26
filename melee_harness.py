@@ -431,6 +431,15 @@ class Harness:
         hook() can fail transiently right after launch (MEM1 not mapped yet),
         so retry with a plain sleep.
         """
+        # dme allows one attach per Dolphin; a prior harness Python still on
+        # its timer (pkill Dolphin does NOT kill it) holds the attach and
+        # every retry below fails. Fail fast with the real cause.
+        prior = self._read_dme_lock()
+        if prior is not None:
+            raise RuntimeError(
+                f"another harness process (pid {prior}) is still attached via "
+                "dme -- kill it before relaunching. pkill -9 -x Dolphin does "
+                "NOT kill your own backgrounded harness/probe scripts.")
         for i in range(attempts):
             if self._proc is not None and self._proc.poll() is not None:
                 raise RuntimeError(
@@ -440,10 +449,44 @@ class Harness:
             if dme.is_hooked():
                 _log(f"dme hooked on attempt {i + 1}")
                 self._hooked = True
+                self._write_dme_lock()
                 return
             time.sleep(delay)
-        raise RuntimeError("dme.hook() failed after retries -- "
-                           "check the launched process is named 'Dolphin'")
+        raise RuntimeError(
+            "dme.hook() failed after retries. Known causes, most likely "
+            "first: (1) a stale/zombie Dolphin stealing the name-based "
+            "attach -- pkill -9 -x Dolphin and poll pgrep until empty (an "
+            "unkillable kernel-UE corpse needs a reboot); (2) another live "
+            "harness Python still attached -- pkill Dolphin does not kill "
+            "it; (3) the process isn't named 'Dolphin' -- recreate the "
+            "hardlink (HARNESS.md §9).")
+
+    _DME_LOCK = os.path.join(tempfile.gettempdir(), "melee_harness_dme.pid")
+
+    def _read_dme_lock(self):
+        """Pid of a live *other* harness process holding the dme attach, else None."""
+        try:
+            pid = int(open(self._DME_LOCK).read())
+            if pid != os.getpid():
+                os.kill(pid, 0)         # raises if dead
+                return pid
+        except (FileNotFoundError, ValueError, ProcessLookupError):
+            pass
+        return None
+
+    def _write_dme_lock(self):
+        try:
+            with open(self._DME_LOCK, "w") as f:
+                f.write(str(os.getpid()))
+        except OSError as e:
+            _log(f"dme lockfile write failed ({e}) -- continuing unlocked")
+
+    def _clear_dme_lock(self):
+        try:
+            if int(open(self._DME_LOCK).read()) == os.getpid():
+                os.unlink(self._DME_LOCK)
+        except (FileNotFoundError, ValueError, OSError):
+            pass
 
     def close(self):
         """Tear down without ever hanging."""
@@ -453,6 +496,7 @@ class Harness:
             except Exception:
                 pass
             self._hooked = False
+            self._clear_dme_lock()
         if self._proc is not None:
             try:
                 self._proc.kill()
@@ -831,6 +875,20 @@ class Harness:
         geckos survive slot 2's MEM1 wipe and actually execute against the
         scenario state. See _persist_geckos_through_savestate for details.
         """
+        # The save+overlay+load round-trip deterministically wedges the CPU
+        # unless the meta-flush gecko (hook 0x803775C0) is also staged -- even
+        # for a 2-instruction no-op payload. Bisected 2026-07-26 in
+        # bisect_asdi.py; mechanism still unexplained. Fail loudly here: the
+        # raw symptom is a generic "CPU never started ticking" TimeoutError
+        # that cost a session ~9 minutes to root-cause.
+        if self._gecko_codes and not any(
+                c["hook"] == 0x803775C0 for c in self._gecko_codes):
+            raise RuntimeError(
+                "gecko(s) staged without the meta-flush gecko -- "
+                "seed_snapshot's save+overlay+load round-trip wedges the CPU "
+                "without it. Call instr_writer.install_meta_flush(h) before "
+                "your install_gecko_c2 calls (see bisect_asdi.py).")
+
         if not dme.is_hooked():
             raise RuntimeError("seed_snapshot requires dme to be hooked first")
 
@@ -950,6 +1008,11 @@ class Harness:
     def entity_ptr(self, port: int) -> int:
         """Read the GObj pointer for a 1-indexed port. See OFF_PLAYER_DATA --
         callers usually want player_data_ptr() instead."""
+        if not 1 <= port <= 4:
+            raise ValueError(
+                f"port {port}: harness ports are 1-indexed (P1=1 .. P4=4). "
+                "The raw 0x80453130 + port*0xE90 math in REFERENCE.md §1.3 "
+                "is 0-indexed -- do not mix the conventions.")
         return self.read_word(P1_ENTITY_PTR + (port - 1) * ENTITY_PTR_STRIDE)
 
     def player_data_ptr(self, port: int) -> int:

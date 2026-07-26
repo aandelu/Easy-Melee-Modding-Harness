@@ -141,6 +141,7 @@ iw.patch_branch(h, HOOK, CAVE)
 Loop discipline:
 
 - **Assemble and verify every payload before flushing it** (§3.1 — the rule applies here too, not just at ship time).
+- **When a payload misbehaves, instrument first — theorize second.** Put an in-cave counter after each gate clause (`gecko_tools.counter_bump_asm` / `read_counters`) and read which clause rejects. Twice now (wavedash, ASDI) one counter run settled what three or four observer-based theories got wrong; the counters cost ~5 words per clause.
 - **Iterate in-game**, never by reloading slot 2 (the wipe rule, §1.5).
 - **A/B without relaunching:** toggle a single *code* instruction (`oris`↔`nop`, `stb`↔`nop`) via `write_instrs` to compare on/off in one session.
 - **Self-drive** the character when no human is on the sticks: at the pad-read hook, read the action state and inject the inputs that cycle it (Wait→jump, airborne→attack, ...). `play_wavedash_offline.py` and `play_d2.py` are runnable worked examples; `verify_d2.py` shows the observation side.
@@ -224,6 +225,7 @@ For real (non-harness) play the user just adds and enables the gecko — no save
 
 - Update [`docs/STATUS.md`](docs/STATUS.md) — every shipped macro gets a line (name, gecko file, generator, validation state, pending items).
 - Write or update the macro's page at `docs/macros/<name>.md`: mechanic, hooks, timing model, what was validated and how, known limits.
+- **Promote shared facts to [`docs/REFERENCE.md`](docs/REFERENCE.md).** Any offset, hook property, or harness-wide gotcha you discovered belongs there ("every stable fact, stated once") — a macro doc's gotcha list is where such facts go to die, because the next non-<name> session never opens it.
 - Commit the gecko text file (`*.gecko.txt`) and its `make_*_gecko.py` generator together.
 
 ### Ship checklist
