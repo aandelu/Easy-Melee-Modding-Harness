@@ -14,7 +14,8 @@
       "Bash(python3 -u verify_savestate.py)",
       "Bash(echo \"verify pid $!\")",
       "Bash(caffeinate -dimsu -t 28800)",
-      "Bash(echo \"caffeinate PID: $!\")"
+      "Bash(echo \"caffeinate PID: $!\")",
+      "Bash(open *)"
     ]
   }
 }

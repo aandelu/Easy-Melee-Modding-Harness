@@ -92,7 +92,7 @@ Player Data offsets:
 | `+0x894` | Action State Frame Counter (float, resets to `1.0` on each new state) | **FREEZES during hitlag.** Rollback-safe (it's game state). `+0x3E8` is the *Sub*-Action State Frame Counter — a different float; don't confuse. |
 | `+0x834` | last-landed Y position (float) | with `+0xB4`: near-ground check — real float compare, never exact (§2.5) |
 | `+0x195C` | hitlag counter (float, counts down; `!= 0` ⇒ in hitlag) | `+0x2219 & 0x04` is an alternate hitlag flag |
-| `+0x2340` | hitstun counter (float, frames remaining) | **0 on the attacker even during its hitlag** — the only clean victim/attacker discriminator (43/43 attacker rows measured) |
+| `+0x2340` | hitstun counter (float, frames remaining) | ⚠️ **NOT a victim/attacker discriminator by itself**: after a player has been hit once, the counter decays to a parked **denormal `0x00000001`** (≈1e-45) instead of 0 and stays there — prints as `0.00` but passes `cmpwi != 0` (raw-bits proof 2026-07-25, `asdi_tech_offline.py` run 3; this denormal is what the earlier "43/43 attacker rows are 0" measurement missed and what produced the bogus 61/137 "attacker leak"). The definitional victim check is **action state in the Damage range `0x4E`–`0x5B`**; keep `hitstun != 0` only as belt-and-suspenders. |
 | `+0x25FF` | `LCancelStatus` (u8: 0=none, 1=success, 2=fail) | the direct per-landing L-cancel observable (from Slippi `Recording.s`); prefer over landing-state duration or `+0x680` |
 
 **Float→int decode without FPU** (for `+0x894`, `+0x195C`, any integer-valued
@@ -184,7 +184,7 @@ rollback-safe.
 
 | Environment | Input type | Hook | Entry state | Displaced original | Branch-back |
 | --- | --- | --- | --- | --- | --- |
-| OFFLINE | anything | `0x803775B8` (`HSD_PadRead`, consumer) | `r24` = 0-indexed port, `r25` = pad struct ptr — ⚠️ **the player `r24` indexes is NOT the character whose pad is `r25`** (measured 2026-07-26: 61/137 gated injections landed on the attacker). Bound-check `r24`, gate on the pad-owner's *state* only, and never port `r24` indexing online (`docs/macros/asdi_floorhug.md`) | `lhz r0,0(r25)` = `0xA0190000` | `0x803775BC` |
+| OFFLINE | anything | `0x803775B8` (`HSD_PadRead`, consumer) | `r24` = 0-indexed port, `r25` = that port's pad in a **5-entry rotating ring**: `0x8046B108 + k*0x30 + r24*0xC` (4 × 0xC-byte pads per entry; ring-logged 2026-07-25, two per-port call sites LR `0x80377538`/`0x803778A8`). **`r24` IS the pad owner** — the old "61/137 attacker leak" was the parked-denormal hitstun gate (§1.3) passing for the attacker, not a register mismatch. Verify structurally anyway: `(r25 − 0x8046B108 − r24*0xC) < 0xF0` and 16-aligned drops any rogue call path. Still never port `r24` indexing online (use the ODB). | `lhz r0,0(r25)` = `0xA0190000` | `0x803775BC` |
 | ONLINE | digital buttons | `0x8034E2AC` (producer, "Altimor's slot") | `r0` = raw SI word, button bits in high 16 → `oris r0,r0,BIT` sets BIT | `rlwinm r0,r0,0x10,0x12,0x1f` = `0x540084BE` | `0x8034E2B0` |
 | ONLINE | analog trigger / stick | `0x8034E680` (producer, post-calibration) | `r3` = calib ptr, `r4` = PADStatus → `stb val, N(r4)` | `lbz r0,7(r3)` = `0x88030007` | `0x8034E684` |
 
@@ -327,6 +327,103 @@ C234E2AC 00000002
 
 Complete inventory: grep `vendor/slippi-ssbm-asm-master/**/*.asm` for
 `# Address:` headers.
+
+### 2.8 SDI mechanics (measured 2026-07-25, `asdi_sdi_offline.py`, 40+ instrumented hits)
+
+- Displacement per SDI input = engine stick vector × **6** (PlCo `0xA498`);
+  requires stick magnitude ≥ **0.7** (PlCo `0xA490`). Direct per-input evidence:
+  Char Data `+0x18B8`/`+0x18BC` (SDI x/y offset).
+- **Re-arm rule:** an input fires only on a frame where a stick *axis* freshly
+  enters a directional region. Hold = ONE input. down↔neutral re-arms every
+  OTHER frame (−3.0 u/f down). An **X sign flip re-arms EVERY frame** — no
+  intermediate neutral frame needed. Diagonal→cardinal return (down↔down-away)
+  does NOT re-arm — that pattern is refuted (−2.1 u/f + one-sided drift).
+- **Whole-vector arming:** a tick armed by the fresh X applies the full
+  (x, y) × 6 **including the stale held Y**.
+- X must clear the **0.2875 deadzone** to arm: raw ±24 (0.30) re-arms every
+  frame; raw ±20 (0.25) is zeroed by the engine → reads as a pure-down hold.
+- Raw pad coords are **radially clamped** to the unit circle before use
+  ((+80,−80) → (0.707,−0.707)); out-of-bounds synthetic coords buy nothing.
+- **Fastest downward drag: alternate raw (±24, −76)** = (±0.30, −0.95) →
+  **−5.7 u/frame**, ±1.8 X wobble self-cancels. Beats corner alternation
+  (−4.2) and down↔neutral (−3.0). 95% of the unreachable −6.0 hold ceiling.
+- **The floor eats vertical SDI** at/below ground level (dx still applies), and
+  occasional upward push-out artifacts appear near floors/platforms. Vertical
+  SDI is also eaten in some below-plane/offstage geometries (seen, not
+  characterized). Measure dy only on victims well above ground.
+- The c-stick never SDIs; ASDI stays c-stick-owned regardless of the analog
+  stick's SDI pattern.
+
+### 2.9 DI (trajectory DI) mechanics (measured 2026-07-25, `asdi_tdi_offline.py`, 3 runs)
+
+- **DI is read from the pad on the `hitlag == 2` frame.** ONE frame, and it is
+  *not* the `hitlag < 2.0` frame the tech press uses. Established by
+  elimination, not assumption:
+  - run 1 wrote TDI only at hitlag 1, SDI on frames ≥2 → every rotation matched
+    the **SDI** stick to ≤0.1° (so the read frame is ≥2, and 1 is not it);
+  - run 3 wrote TDI on frames {2,1}, SDI on ≥3 → with TDI **off** the rotation
+    was exactly **0.0** on 8/8 hits (so frames ≥3 are not it either).
+  The tech press does not care (20-frame window); DI is one frame or nothing.
+- Rotation = **18° × p²**, where `p = |stick| · sin(stick_angle − traj_angle)`
+  and the stick is radially clamped to 1.0 as in §2.8. Predicted vs measured
+  agreed to ≤0.6° over 12 instrumented hits — this formula is now a usable
+  oracle, not a hypothesis.
+- The rotation is applied **in place** to Player Data `+0x8C`/`+0x90` between
+  the last hitlag frame and the next, with **magnitude preserved**. That
+  invariant is how a real DI is distinguished from a floor collision, which
+  either zeroes `kb_y` or projects the vector onto the ground plane (the
+  projection preserves magnitude too, so test `kb_y != 0.0`, not magnitude
+  alone — both filters were needed to clean the measurements).
+- Max downward rotation needs the stick **perpendicular to the trajectory, on
+  the end with y < 0**. Quantizing to 8 sectors via integer compares on the raw
+  float bits (positive IEEE floats order as ints — no FPU, no division) costs
+  ~3°: measured **15.0–16.7°** against the 18° ceiling, on every clean hit.
+- ⚠️ **A rotation is not a floorhug.** A 90° launch rotated to 75° is still
+  going up; those hits still ended DownBound/escaped. On near-vertical launches
+  DI buys *distance survived*, not a tech.
+- ⚠️ **The perpendicular has two ends and the choice is stage-blind.** For a
+  near-vertical launch the two downward perpendiculars point left and right;
+  picking by `sign(kb_x)` (as the current cave does) can rotate a victim
+  *toward* the nearer ledge. Stage-relative selection is unresolved — same open
+  question as the SDI offstage guard.
+
+### 2.10 Producer-side delay compensation (validated 2026-07-25, `asdi_online_full.py`)
+
+A pad byte written at a producer hook (§2.2) is not consumed on the frame it is
+written: it goes through Slippi's delay buffer and reaches the engine `delay`
+frames later. **Every frame-targeted layer therefore shifts by `delay`; layers
+that merely *hold* a value do not.** Read the delay at runtime from
+`ODB + 0x21` (`ODB_DELAY_FRAMES`, §1.x) — it is fixed for a match but varies by
+connection, so never bake it in.
+
+Writing while `hitlag < W` lands on engine hitlag `W-1-delay … 1-delay`, so to
+cover engine frame `k` use **`W = k + 1 + delay`**:
+
+| Intent | Engine frame | Window |
+| --- | --- | --- |
+| hold through hitlag (ASDI c-stick) | all | no compensation needed |
+| act on the last hitlag frame (tech press) | `1` | `hitlag < 2.0 + delay` |
+| act on the DI read frame (§2.9) | `2` | `hitlag < 3.0 + delay` |
+
+Two consequences worth planning around:
+
+- **Frames are zero-sum.** A window of `k+1+delay` also writes every frame below
+  it, stealing them from whatever else owns that byte. At delay 1 a 4-frame
+  hitlag leaves a `hitlag < 4.0` layer exactly one frame for anything else.
+- **Do the float arithmetic in Python, not the cave.** Poke the threshold as
+  float *bits* (compared with `cmplw` — positive floats order as ints); you
+  cannot add an integer `delay` to a float bit pattern. For a shipped gecko that
+  must self-configure, use a delay-indexed table of 8 floats + `lwzx`, not FPU.
+
+⚠️ **Minimum hitlag is 4 frames**, so a layer needing engine frame 2 has zero
+margin at delay 3.
+
+⚠️ **A meta-flush hook that reads as a branch is not a responsive gecko.** After
+the F4 slot-4 load there is a window where it is patched but not yet firing, and
+its control plane lives in `0x803FAxxx`, which rollback does not reliably
+preserve (§3.4). Call `instr_writer.wait_for_meta_flush_alive` before the first
+`write_instrs` and retry each flush — re-arming is idempotent, and the
+alternative is losing a whole online session to a 1-second timeout.
 
 ---
 
@@ -480,6 +577,10 @@ discovered a gecko's actual landing spot was deleted 2026-07-24 — git history.
 - **Accessibility permission** granted to the terminal/Python (synthetic
   keystrokes via CGEvent; `AXIsProcessTrusted()` confirms). Dolphin's Hotkey
   device must be `Quartz/0/Keyboard & Mouse`.
+- **Agents: run every Dolphin-launching command with the sandbox disabled**
+  (Claude Code: `dangerouslyDisableSandbox: true`). dme needs `task_for_pid` and
+  the launch is a GUI app; a sandboxed run fails at the attach, which looks like
+  a stale-process problem and is not one.
 - macOS virtual keycodes for `melee_harness._send_key`: F1=122, F2=120,
   **F4=118**, Return/Enter=**36**, Left-Shift=56.
 - Hard-coded paths live in `melee_harness.py`: `DOLPHIN_HARDLINK`, `ISO_PATH`,
@@ -511,6 +612,12 @@ discovered a gecko's actual landing spot was deleted 2026-07-24 — git history.
   Dolphin running between steps rather than closing the harness.
 - **F2 sent too early is dropped** — wait for the power-on counter
   (`0x804D7420`) to start ticking before sending savestate hotkeys.
+- **First Dolphin launches after a macOS reboot can die instantly with SIGKILL
+  "Code Signature Invalid"** (crash report says `Taskgated Invalid Signature`,
+  `dolphin.log` empty). It is the Rosetta AOT cache rebuilding post-reboot, not
+  the hardlink and not SIP — it self-heals within ~15 min. Retry later; do not
+  re-sign anything (measured 2026-07-25: two kills at boot+15min, clean
+  launches at boot+30min with identical binary, env, and hardlink).
 
 ### 5.3 Read/write discipline
 
